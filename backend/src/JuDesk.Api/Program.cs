@@ -1,0 +1,89 @@
+using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
+using JuDesk.Api.Auth;
+using JuDesk.Api.Data;
+using JuDesk.Api.Endpoints;
+using JuDesk.Api.Services;
+using JuDesk.Domain.Entities;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+
+builder.Services.Configure<SeedOptions>(builder.Configuration.GetSection(SeedOptions.Section));
+builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
+builder.Services.AddScoped<ScheduleService>();
+builder.Services.AddJuDeskAuth();
+builder.Services.AddProblemDetails();
+builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>();
+
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
+// Brute-force protection on login: a small fixed window per client address.
+var loginAttemptsPerMinute = builder.Configuration.GetValue("Auth:LoginAttemptsPerMinute", 10);
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(AuthEndpoints.LoginRateLimitPolicy, http =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = loginAttemptsPerMinute, Window = TimeSpan.FromMinutes(1) }));
+});
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "JuDesk API",
+        Version = "v1",
+        Description = "Shift scheduling for field technicians: skills, sites, shifts, rule-checked assignments and a week auto-scheduler.",
+    });
+});
+
+var app = builder.Build();
+
+app.UseExceptionHandler();
+app.UseStatusCodePages();
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    await next();
+});
+
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.UseSwagger();
+app.UseSwaggerUI(options => options.SwaggerEndpoint("/swagger/v1/swagger.json", "JuDesk API v1"));
+
+app.MapHealthChecks("/health").AllowAnonymous();
+
+var api = app.MapGroup("/api").RequireAuthorization();
+api.MapAuth();
+api.MapCatalog();
+api.MapShifts();
+api.MapSchedule();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var seed = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<SeedOptions>>().Value;
+    var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();
+    await db.Database.MigrateAsync();
+    await DemoSeeder.SeedAsync(db, seed, hasher, app.Logger);
+}
+
+app.Run();
+
+/// <summary>Lets the integration tests reference the entry point with WebApplicationFactory.</summary>
+public partial class Program;
