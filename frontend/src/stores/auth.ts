@@ -7,6 +7,8 @@ import type { User } from '@/api/types'
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
   const checked = ref(false)
+  /** Set when the API rejected a session the app believed was valid (expired, or the user was deleted). */
+  const expired = ref(false)
 
   const isAuthenticated = computed(() => user.value !== null)
   const isAdmin = computed(() => user.value?.role === 'Admin')
@@ -27,6 +29,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(email: string, password: string) {
     user.value = await authApi.login(email, password)
     checked.value = true
+    expired.value = false
   }
 
   async function logout() {
@@ -38,8 +41,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   setUnauthorizedHandler(() => {
+    if (user.value !== null) expired.value = true
     user.value = null
   })
 
-  return { user, checked, isAuthenticated, isAdmin, restore, login, logout }
+  return { user, checked, expired, isAuthenticated, isAdmin, restore, login, logout }
 })
