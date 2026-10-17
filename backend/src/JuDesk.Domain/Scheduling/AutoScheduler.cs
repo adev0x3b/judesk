@@ -125,28 +125,27 @@ public static class AutoScheduler
         Shift shift,
         Func<Technician, Shift, IReadOnlyList<Violation>> check)
     {
-        var reasons = technicians
-            .SelectMany(t => check(t, shift))
-            .Select(v => v.Code)
-            .Where(c => c is not ViolationCode.AlreadyAssigned and not ViolationCode.ShiftFull)
-            .GroupBy(c => c)
-            .OrderByDescending(g => g.Count())
-            .Select(g => g.Key)
-            .ToList();
-
-        if (reasons.Count == 0)
+        var skillName = shift.RequiredSkill?.Name ?? "the required skill";
+        var qualified = technicians.Where(t => t.Active && t.Skills.Any(s => s.Id == shift.RequiredSkillId)).ToList();
+        if (qualified.Count == 0)
         {
-            return "No eligible technician.";
+            return $"Unfilled: nobody active has {skillName}.";
         }
 
-        var top = reasons[0] switch
+        var topReason = qualified
+            .SelectMany(t => check(t, shift))
+            .Select(v => v.Code)
+            .Where(c => c is ViolationCode.Overlap or ViolationCode.MaxHoursExceeded)
+            .GroupBy(c => c)
+            .OrderByDescending(g => g.Count())
+            .Select(g => (ViolationCode?)g.Key)
+            .FirstOrDefault();
+
+        return topReason switch
         {
-            ViolationCode.MissingSkill => $"nobody else has {shift.RequiredSkill?.Name ?? "the required skill"}",
-            ViolationCode.Overlap => "everyone qualified is already on an overlapping shift",
-            ViolationCode.MaxHoursExceeded => "everyone qualified would exceed their weekly hours",
-            ViolationCode.TechnicianInactive => "the qualified technicians are inactive",
-            _ => "no eligible technician",
+            ViolationCode.Overlap => $"Unfilled: everyone with {skillName} is already on an overlapping shift.",
+            ViolationCode.MaxHoursExceeded => $"Unfilled: everyone with {skillName} would exceed their weekly hours.",
+            _ => $"Unfilled: no eligible technician with {skillName}.",
         };
-        return $"Unfilled: {top}.";
     }
 }
