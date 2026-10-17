@@ -86,12 +86,12 @@ All routes under `/api` need a session except `POST /api/auth/login`; `/api/user
 ## Tests
 
 ```bash
-cd backend && dotnet test         # 47 tests
+cd backend && dotnet test         # 48 tests
 cd frontend && npm run test:unit  # 14 tests
 ```
 
 - **Domain unit tests** ([`tests/JuDesk.Tests/Unit`](backend/tests/JuDesk.Tests/Unit)): every rule, the week arithmetic, and the scheduler's behaviour (fills when there is capacity, balances hours, plans the most constrained shift first, never proposes a violation, is deterministic, does not mutate its input).
-- **API integration tests** ([`tests/JuDesk.Tests/Integration`](backend/tests/JuDesk.Tests/Integration)): one real PostgreSQL started by Testcontainers and the API in process through `WebApplicationFactory`, migrations included. They cover the auth flow and cookie flags, role checks, validation, overlap detected from the database, the hours override, auto-assign and undo, and the CSV output.
+- **API integration tests** ([`tests/JuDesk.Tests/Integration`](backend/tests/JuDesk.Tests/Integration)): one real PostgreSQL started by Testcontainers and the API in process through `WebApplicationFactory`, migrations included. They cover the auth flow and cookie flags, role checks, the rejection of a session whose user was deleted, validation, overlap detected from the database, the hours override, auto-assign and undo, and the CSV output.
 - **Front-end tests** ([`frontend/src/__tests__`](frontend/src/__tests__)): week helpers, the fetch client's error mapping, the schedule store, and the shift card's drag-and-drop events and eligibility hints.
 - **Compose smoke test** ([`scripts/smoke.sh`](scripts/smoke.sh)) against the built images.
 
@@ -104,7 +104,7 @@ The jobs run on a self-hosted runner (`runs-on: [self-hosted, linux]`) while the
 ## Security notes
 
 - Passwords are hashed with ASP.NET Core's `PasswordHasher` (PBKDF2); the first admin's password comes from configuration and should be changed in `.env`.
-- The session cookie is HttpOnly and SameSite=Strict, so cross-site requests do not carry it; the API is only reached through the same origin (nginx in compose, the Vite proxy in development).
+- The session cookie is HttpOnly and SameSite=Strict, so cross-site requests do not carry it; the API is only reached through the same origin (nginx in compose, the Vite proxy in development). On every request the cookie's user is checked against the database: a deleted user, or a database recreated under a still-valid cookie, gets a 401 and the cookie cleared, and the app shows "Your session has expired". Data-protection keys live in the API container, so recreating it also signs everyone out.
 - Login is rate limited (10 attempts per minute per client address by default), responses carry `X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy`, and the API container runs as a non-root user.
 - Not covered: HTTPS termination (put it in front of nginx), password reset, audit log.
 

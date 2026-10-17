@@ -1,7 +1,9 @@
 using System.Security.Claims;
+using JuDesk.Api.Data;
 using JuDesk.Domain.Entities;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.EntityFrameworkCore;
 
 namespace JuDesk.Api.Auth;
 
@@ -31,6 +33,23 @@ public static class CookieAuth
                 {
                     ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
                     return Task.CompletedTask;
+                };
+                // A cookie that still verifies but belongs to a user who no longer exists (deleted,
+                // or the database was recreated) is rejected and cleared, so the client gets a
+                // clean 401 and a fresh login instead of a half-authenticated state.
+                options.Events.OnValidatePrincipal = async ctx =>
+                {
+                    var db = ctx.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                    var id = ctx.Principal?.UserId();
+                    var role = ctx.Principal?.FindFirstValue(ClaimTypes.Role);
+                    var current = id is null
+                        ? null
+                        : await db.Users.AsNoTracking().Where(u => u.Id == id).Select(u => new { u.Role }).FirstOrDefaultAsync();
+                    if (current is null || current.Role.ToString() != role)
+                    {
+                        ctx.RejectPrincipal();
+                        await ctx.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                    }
                 };
             });
 

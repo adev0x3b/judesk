@@ -12,6 +12,7 @@ const email = ref('')
 const password = ref('')
 const error = ref<string | null>(null)
 const busy = ref(false)
+const expired = route.query.expired === '1'
 
 async function submit() {
   error.value = null
@@ -37,6 +38,8 @@ async function submit() {
         <h1>JuDesk</h1>
       </div>
       <p class="muted tagline">Shift scheduling for field technicians</p>
+
+      <p v-if="expired && !error" class="notice" role="status">Your session has expired. Sign in again.</p>
 
       <div class="field">
         <label for="email">Email</label>
@@ -94,6 +97,15 @@ async function submit() {
 
 .tagline {
   margin: 6px 0 22px;
+}
+
+.notice {
+  margin: -8px 0 16px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 13px;
 }
 
 .submit {

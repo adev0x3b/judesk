@@ -90,6 +90,29 @@ public class AuthTests(ApiFixture fixture)
     }
 
     [Fact]
+    public async Task Session_of_a_deleted_user_is_rejected_and_the_cookie_cleared()
+    {
+        var admin = await fixture.AdminClientAsync();
+        var email = $"gone-{Guid.NewGuid():N}@test.local";
+        var created = await (await admin.PostAsJsonAsync("/api/users", new CreateUserRequest(email, "Gone", "Gone-Pass-1", UserRole.Planner)))
+            .Content.ReadFromJsonAsync<UserDto>();
+
+        var planner = fixture.AnonymousClient();
+        Assert.Equal(HttpStatusCode.OK, (await planner.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "Gone-Pass-1"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await planner.GetAsync("/api/technicians")).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/users/{created!.Id}")).StatusCode);
+
+        // The cookie still verifies cryptographically, but its user is gone: 401 and the cookie is deleted.
+        var response = await planner.GetAsync("/api/technicians");
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var cookie = Assert.Single(response.Headers.GetValues("Set-Cookie"));
+        Assert.StartsWith("judesk.auth=;", cookie);
+        Assert.Contains("expires=", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await planner.GetAsync("/api/auth/me")).StatusCode);
+    }
+
+    [Fact]
     public async Task Responses_carry_security_headers()
     {
         var response = await fixture.AnonymousClient().GetAsync("/health");
