@@ -4,6 +4,8 @@ import type {
   AutoAssignResult,
   Candidate,
   CreateUserRequest,
+  SetupRequest,
+  SetupStatus,
   Shift,
   ShiftRequest,
   Site,
@@ -14,6 +16,11 @@ import type {
   User,
   WeekSchedule,
 } from './types'
+
+export const setupApi = {
+  status: () => http.get<SetupStatus>('/api/setup/status'),
+  complete: (request: SetupRequest) => http.post<User>('/api/setup', request),
+}
 
 export const authApi = {
   login: (email: string, password: string) => http.post<User>('/api/auth/login', { email, password }),

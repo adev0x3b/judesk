@@ -52,6 +52,24 @@ namespace JuDesk.Api.Data.Migrations
                     b.ToTable("Assignments");
                 });
 
+            modelBuilder.Entity("JuDesk.Domain.Entities.SetupCode", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SetupCodes");
+                });
+
             modelBuilder.Entity("JuDesk.Domain.Entities.Shift", b =>
                 {
                     b.Property<Guid>("Id")

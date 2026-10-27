@@ -18,6 +18,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.Configure<SeedOptions>(builder.Configuration.GetSection(SeedOptions.Section));
 builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<ScheduleService>();
+builder.Services.AddScoped<SetupService>();
 builder.Services.AddJuDeskAuth();
 builder.Services.AddProblemDetails();
 builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>();
@@ -69,6 +70,7 @@ app.UseSwaggerUI(options => options.SwaggerEndpoint("/swagger/v1/swagger.json", 
 app.MapHealthChecks("/health").AllowAnonymous();
 
 var api = app.MapGroup("/api").RequireAuthorization();
+api.MapSetup();
 api.MapAuth();
 api.MapCatalog();
 api.MapShifts();
@@ -78,9 +80,27 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var seed = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<SeedOptions>>().Value;
-    var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();
+    var setup = scope.ServiceProvider.GetRequiredService<SetupService>();
     await db.Database.MigrateAsync();
-    await DemoSeeder.SeedAsync(db, seed, hasher, app.Logger);
+
+    // `dotnet JuDesk.Api.dll --regen-setup-code` (scripts/regen-setup-code.sh) prints a fresh code and exits.
+    if (args.Contains("--regen-setup-code"))
+    {
+        if (!await setup.NeedsSetupAsync())
+        {
+            Console.WriteLine("Setup is already complete; there is no code to regenerate.");
+            return;
+        }
+        Console.WriteLine(SetupService.Banner(await setup.IssueCodeAsync()));
+        return;
+    }
+
+    await DemoSeeder.SeedAsync(db, seed, app.Logger);
+
+    if (await setup.EnsureCodeAsync() is { } code)
+    {
+        app.Logger.LogWarning("{Banner}", SetupService.Banner(code));
+    }
 }
 
 app.Run();
