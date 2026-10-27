@@ -2,39 +2,37 @@
 
 [![CI](https://github.com/adev0x3b/judesk/actions/workflows/ci.yml/badge.svg)](https://github.com/adev0x3b/judesk/actions/workflows/ci.yml)
 
-Shift scheduling for field technicians. A planner keeps a roster of technicians with skills and a weekly hours limit, sites with shifts that need a skill and a headcount, and fills the week by dragging people onto shifts or letting the auto-scheduler do it. Every assignment is checked against the same rules: required skill, no overlapping shifts, weekly hours, headcount. The week exports to CSV.
+Shift scheduling for field technicians. Keep a roster of technicians with skills and a weekly hours limit, define shifts per site, and fill the week by dragging people onto shifts or letting the auto-scheduler do it. Every assignment is checked against the same rules: required skill, no overlapping shifts, weekly hours, headcount.
 
-It grows out of a problem I worked on at Freezanz, where I wrote the route-optimization algorithm that plans the day of the maintenance technicians.
+![Week view: technician panel on the left, one card per shift, auto-assigned slots marked A](docs/screenshots/schedule-filled.png)
 
-**Stack:** ASP.NET Core 8 minimal API · EF Core 8 · PostgreSQL 16 · Vue 3 + TypeScript (Vite, Pinia) · xUnit + Testcontainers · Vitest · Docker Compose · GitHub Actions.
+## Features
 
-![Week schedule with the technician panel and the auto-scheduler's assignments](docs/screenshots/schedule-filled.png)
-
-## What it does
-
-- **Week calendar**: seven day columns, one card per shift with its site colour, time, required skill and one slot per head. Filter by site, step between weeks, see how many slots are still open.
-- **Drag and drop**: drag a technician from the side panel onto a shift. While dragging, cards hint whether the person is eligible; the API has the final say and answers with the exact violations.
-- **Rule-checked assignment** ([`AssignmentRules`](backend/src/JuDesk.Domain/Scheduling/AssignmentRules.cs)): inactive technician, missing skill, already on the shift, shift full, overlap with another shift that week, weekly hours limit. The hours limit can be overridden by the planner on purpose; the other rules cannot.
-- **Shift drawer**: click a shift to see who is assigned and every candidate with their hours and the rules they would break.
-- **Auto-assign** ([`AutoScheduler`](backend/src/JuDesk.Domain/Scheduling/AutoScheduler.cs)): a preview lists what it would do and which slots stay open and why, then one click applies it. It is a greedy heuristic: most constrained shifts first (fewest eligible technicians), each slot to the eligible technician with the fewest hours that week. Deterministic, never breaks a rule, and "Undo auto" removes only what it added.
+- **Week view** with one column per day and one card per shift: site, time, required skill, one slot per head. Filter by site, step between weeks, see how many slots are still open.
+- **Drag and drop** a technician onto a shift. Cards hint whether the person is eligible while dragging; the server validates and returns the exact violations.
+- **Rule checks** on every assignment: inactive technician, missing skill, already on the shift, shift full, overlap with another shift that week, weekly hours limit. A planner can override the hours limit on purpose; the other rules cannot be overridden.
+- **Shift details** with everyone assigned and every candidate, their hours this week, and the rules they would break.
+- **Auto-assign** for the whole week: preview the plan and the slots that stay open and why, apply it in one click, undo it later. It is a greedy heuristic, most constrained shifts first, each slot to the eligible technician with the fewest hours. Deterministic, never breaks a rule.
 - **CSV export** of the week, one row per slot, unfilled slots included.
-- **Technicians, skills, sites** management, and an admin page to create planner and admin accounts.
-- **First-run setup**: no account is ever seeded. On first start the API prints a one-time code; whoever enters it on the setup page creates the admin, and only then does the rest of the app open.
-- **Demo data**: a fleet of 8 technicians, 4 sites and three weeks of shifts around today, seeded on first start.
+- **Technicians, skills, sites and users** management. Admins create planner and admin accounts.
+- **First-run setup** with a one-time code instead of a default password.
+- **Dark mode**, following the system setting.
 
-| Shift drawer with candidates and violations | Auto-assign preview |
+| Shift details with candidates and violations | Auto-assign preview |
 | --- | --- |
 | ![](docs/screenshots/shift-drawer.png) | ![](docs/screenshots/auto-assign.png) |
 
-| Technicians and skills | Dark mode |
+| Technicians and skills | First-run setup |
 | --- | --- |
-| ![](docs/screenshots/technicians.png) | ![](docs/screenshots/schedule-dark.png) |
+| ![](docs/screenshots/technicians.png) | ![](docs/screenshots/setup.png) |
 
-## Running it
+## Quick start
 
-Docker Compose builds and starts PostgreSQL, the API and the web app (nginx serving the Vue build and proxying `/api`).
+Requires Docker with Compose.
 
 ```bash
+git clone https://github.com/adev0x3b/judesk.git
+cd judesk
 docker compose up --build
 ```
 
@@ -51,85 +49,130 @@ The `api` service prints a one-time setup code in its log:
 ==========================================================
 ```
 
-Open <http://localhost:8090>, which lands on the setup page until an admin exists, enter the code with your name, email and password, and you are in. The code is printed again on every restart until setup is done; `scripts/regen-setup-code.sh` retires it and prints a new one. Swagger UI is at <http://localhost:8090/swagger>. The port and the demo seed are set in `.env` (see [`.env.example`](.env.example)).
+Open <http://localhost:8090>. Until an admin exists the app shows only the setup page: enter the code with your name, email and password and you are signed in. The code is printed again on every restart until setup is done; `scripts/regen-setup-code.sh` retires it and prints a new one.
 
-The compose defaults suit a local environment. Steps before exposing the app: put HTTPS termination in front of nginx, set `DB_PASSWORD`, and turn `SEED_DEMO` off.
+The database starts with a demo fleet (8 technicians, 4 sites, three weeks of shifts around today) so there is something to schedule. Swagger UI is at <http://localhost:8090/swagger>.
 
-For development run the API and the Vite dev server separately; Vite proxies `/api` to the API so the auth cookie stays first-party:
+## Configuration
+
+Copy [`.env.example`](.env.example) to `.env` to change the defaults.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `WEB_PORT` | `8090` | Host port of the web app. The API is only reachable through it. |
+| `DB_PASSWORD` | `judesk` | PostgreSQL password. |
+| `SEED_DEMO` | `true` | Seed the demo fleet on an empty database. |
+
+The API itself is configured through [`appsettings.json`](backend/src/JuDesk.Api/appsettings.json) and the usual ASP.NET Core environment variables (`ConnectionStrings__Default`, `Seed__Demo`, `Auth__LoginAttemptsPerMinute`).
+
+The compose defaults suit a local environment. Before exposing the app: put HTTPS termination in front of nginx, set `DB_PASSWORD`, turn `SEED_DEMO` off.
+
+## Development
+
+Run the API and the Vite dev server separately. Vite proxies `/api` to the API, so the auth cookie stays on one origin.
 
 ```bash
 docker run -d --name judesk-db -e POSTGRES_USER=judesk -e POSTGRES_PASSWORD=judesk -e POSTGRES_DB=judesk -p 5432:5432 postgres:16-alpine
-cd backend && dotnet run --project src/JuDesk.Api      # http://localhost:5080
-cd frontend && npm install && npm run dev               # http://localhost:5173
+
+cd backend
+dotnet run --project src/JuDesk.Api        # http://localhost:5080, prints the setup code
+
+cd frontend
+npm install
+npm run dev                                 # http://localhost:5173
 ```
 
-## The parts worth reading
+Tests:
 
-| Where | What |
+```bash
+cd backend && dotnet test                   # unit tests + API tests on a Testcontainers PostgreSQL (needs Docker)
+cd frontend && npm run test:unit            # Vitest
+cd frontend && npm run lint && npm run type-check
+scripts/smoke.sh                            # end-to-end against a running compose stack
+```
+
+Database changes go through EF Core migrations:
+
+```bash
+cd backend
+dotnet tool restore
+dotnet ef migrations add <Name> --project src/JuDesk.Api --output-dir Data/Migrations
+```
+
+Migrations are applied automatically when the API starts.
+
+## How scheduling works
+
+A week runs Monday to Sunday in UTC. A shift belongs to a site, needs one skill and a headcount, and lasts up to 24 hours. A technician has skills, a weekly hours limit and an active flag.
+
+[`AssignmentRules`](backend/src/JuDesk.Domain/Scheduling/AssignmentRules.cs) decides whether a technician may take a shift and returns a list of violations:
+
+| Code | Meaning |
 | --- | --- |
-| [`backend/src/JuDesk.Domain`](backend/src/JuDesk.Domain) | Entities and the scheduling logic, with no dependency on EF Core or ASP.NET so the rules are plain functions over in-memory objects. |
-| [`AssignmentRules.cs`](backend/src/JuDesk.Domain/Scheduling/AssignmentRules.cs) | The six constraints, returned as a list of violations with messages the UI shows as is. |
-| [`AutoScheduler.cs`](backend/src/JuDesk.Domain/Scheduling/AutoScheduler.cs) | The greedy planner. Works on a snapshot so it never mutates the caller's graph, and explains every slot it leaves open. |
-| [`ScheduleService.cs`](backend/src/JuDesk.Api/Services/ScheduleService.cs) | Loads a week, runs the rules, assigns inside a serializable transaction so two planners cannot overfill a slot, applies a plan, writes the CSV. |
-| [`Endpoints/`](backend/src/JuDesk.Api/Endpoints) | Minimal API route groups: auth and users, catalog (skills, technicians, sites), shifts and assignments, schedule. Validation errors come back as RFC 7807 problem details. |
-| [`CookieAuth.cs`](backend/src/JuDesk.Api/Auth/CookieAuth.cs) | Cookie session (HttpOnly, SameSite=Strict), role policy, 401/403 instead of redirects, and the per-request check that the cookie's user still exists. |
-| [`SetupService.cs`](backend/src/JuDesk.Api/Services/SetupService.cs) | First-run bootstrap: issues the one-time code, prints the banner, creates the admin in a serializable transaction and retires the code. `--regen-setup-code` reuses it from the command line. |
-| [`DemoSeeder.cs`](backend/src/JuDesk.Api/Data/DemoSeeder.cs) | Demo fleet around the current week, never accounts. Idempotent. |
-| [`frontend/src/router/index.ts`](frontend/src/router/index.ts) | The gate: setup page only until an admin exists, login after, admin pages by role. |
-| [`frontend/src/stores/schedule.ts`](frontend/src/stores/schedule.ts) | The week on screen: navigation, site filter, shifts grouped by day, and every mutation (assign, unassign, auto-assign, undo) followed by a reload. |
-| [`ShiftCard.vue`](frontend/src/components/ShiftCard.vue), [`TechnicianPanel.vue`](frontend/src/components/TechnicianPanel.vue) | Native HTML5 drag and drop, no library. |
-| [`ShiftDrawer.vue`](frontend/src/components/ShiftDrawer.vue) | Candidates with violations, the hours override, unassign, edit, delete. |
-| [`frontend/src/api/client.ts`](frontend/src/api/client.ts) | Small typed fetch wrapper that turns problem details into an `ApiError` with field errors and rule violations. |
-| [`scripts/smoke.sh`](scripts/smoke.sh) | The compose smoke test CI runs: health, 401 for anonymous, setup with the code read from the api log (and a wrong one refused), login, week view, a rejected assignment, auto-assign dry run, CSV header, index.html. |
+| `TechnicianInactive` | The technician is marked inactive. |
+| `MissingSkill` | The technician lacks the shift's required skill. |
+| `AlreadyAssigned` | Already on this shift. |
+| `ShiftFull` | The headcount is reached. |
+| `Overlap` | Another assigned shift that week overlaps in time. Back-to-back is fine. |
+| `MaxHoursExceeded` | Hours that week would exceed the technician's limit. The only rule a planner can override. |
+
+[`AutoScheduler`](backend/src/JuDesk.Domain/Scheduling/AutoScheduler.cs) fills a week's open slots: it sorts shifts by how many technicians are eligible (fewest first), then gives each slot to the eligible technician with the fewest hours already scheduled, ties broken by name. It works on a copy of the data, applies the same rules, and explains every slot it leaves open. Assignments it makes are marked `Auto` so they can be removed without touching manual ones.
+
+Both live in the `JuDesk.Domain` project, which has no dependency on EF Core or ASP.NET, so the rules are plain functions over in-memory objects.
 
 ## API
 
-All routes under `/api` need a session except setup and `POST /api/auth/login`; `/api/users` needs the Admin role. Dates are UTC ISO-8601; a week is identified by its Monday.
+All routes under `/api` need a session except setup and login. `/api/users` needs the Admin role. Dates are ISO-8601 UTC; a week is identified by its Monday. Errors are RFC 7807 problem details.
 
 | Method and path | Purpose |
 | --- | --- |
-| `GET /api/setup/status`, `POST /api/setup` | Whether the first admin still has to be created, and creating it with the printed code (`403` on a wrong code, `409` once done). Rate limited like login. |
-| `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` | Cookie session. Login is rate limited per client address. |
+| `GET /api/setup/status`, `POST /api/setup` | Whether the first admin still has to be created, and creating it with the printed code. `403` on a wrong code, `409` once done. |
+| `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` | Cookie session. |
+| `GET/POST/DELETE /api/users` | Accounts (Admin only). |
 | `GET/POST/DELETE /api/skills` | Skills. A skill that shifts still require cannot be deleted. |
 | `GET/POST/PUT/DELETE /api/technicians` | Technicians with skills, weekly hours limit and active flag. |
 | `GET/POST/PUT/DELETE /api/sites` | Sites with an optional colour. |
 | `GET/POST/PUT/DELETE /api/shifts` | Shifts. `GET` takes `from` and `to` dates. Time and skill are locked while someone is assigned. |
 | `GET /api/shifts/{id}/candidates` | Every technician with their hours that week, eligibility and violations. |
-| `POST /api/shifts/{id}/assignments` | Assign; `409` with a `violations` array when a rule fails. `overrideHours: true` waives only the hours limit. |
+| `POST /api/shifts/{id}/assignments` | Assign. `409` with a `violations` array when a rule fails; `overrideHours: true` waives only the hours limit. |
 | `DELETE /api/shifts/{id}/assignments/{assignmentId}` | Unassign. |
 | `GET /api/schedule/week?weekStart=` | Sites, shifts with assignments, technicians with scheduled hours, open slot count. |
 | `POST /api/schedule/auto-assign` | `{ weekStart, dryRun }`: the plan, applied unless `dryRun`. |
-| `DELETE /api/schedule/auto-assignments?weekStart=` | Removes the week's auto-generated assignments. |
+| `DELETE /api/schedule/auto-assignments?weekStart=` | Remove the week's auto-generated assignments. |
 | `GET /api/schedule/export?weekStart=` | CSV, one row per slot. |
 
-## Tests
+## Project layout
 
-```bash
-cd backend && dotnet test         # 55 tests
-cd frontend && npm run test:unit  # 18 tests
+```
+backend/
+  src/JuDesk.Domain/      entities, scheduling rules, auto-scheduler (no framework dependencies)
+  src/JuDesk.Api/         ASP.NET Core minimal API: endpoints, EF Core, auth, setup, seed
+  tests/JuDesk.Tests/     xUnit: unit tests, API tests on a real PostgreSQL via Testcontainers
+frontend/                 Vue 3 + TypeScript (Vite, Pinia, vue-router), Vitest
+scripts/                  smoke.sh, regen-setup-code.sh
+docker-compose.yml        db (PostgreSQL 16), api, web (nginx serving the build and proxying /api)
+.github/workflows/ci.yml  backend tests, front-end checks, compose smoke test
 ```
 
-- **Domain unit tests** ([`tests/JuDesk.Tests/Unit`](backend/tests/JuDesk.Tests/Unit)): every rule, the week arithmetic, and the scheduler's behaviour (fills when there is capacity, balances hours, plans the most constrained shift first, never proposes a violation, is deterministic, does not mutate its input).
-- **API integration tests** ([`tests/JuDesk.Tests/Integration`](backend/tests/JuDesk.Tests/Integration)): one real PostgreSQL started by Testcontainers and the API in process through `WebApplicationFactory`, migrations included. They cover the first-run setup on a database of its own (code required, wrong and stale codes refused, one admin only), the auth flow and cookie flags, role checks, the rejection of a session whose user was deleted, validation, overlap detected from the database, the hours override, auto-assign and undo, and the CSV output.
-- **Front-end tests** ([`frontend/src/__tests__`](frontend/src/__tests__)): week helpers, the fetch client's error mapping, the auth store's setup and session states, the schedule store, and the shift card's drag-and-drop events and eligibility hints.
-- **Compose smoke test** ([`scripts/smoke.sh`](scripts/smoke.sh)) against the built images.
+## Built with
+
+ASP.NET Core 8 (minimal API), Entity Framework Core 8, PostgreSQL 16, Vue 3, TypeScript, Vite, Pinia, xUnit, Testcontainers, Vitest, Docker Compose, nginx.
+
+## Security
+
+- No default credentials: the first admin is created with a one-time setup code that the API prints only to its own log and retires on use. Passwords are hashed with PBKDF2 (`PasswordHasher`).
+- The session cookie is HttpOnly and SameSite=Strict. On every request the cookie's user is checked against the database, so a deleted user or a recreated database gets a clean 401 and the app shows "Your session has expired".
+- Login and setup are rate limited per client address (10 attempts a minute by default).
+- Responses carry `X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy`; the API container runs as a non-root user.
+- Data-protection keys live in the API container, so recreating it signs everyone out.
+- Not included: HTTPS (terminate it in front of nginx), password reset, audit log.
 
 ## CI
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs three jobs: backend tests (Testcontainers needs Docker on the runner), front-end lint, format check, type-check, unit tests and build, then the compose smoke test on the built images.
+[`ci.yml`](.github/workflows/ci.yml) runs the backend tests (Testcontainers needs Docker on the runner), the front-end lint, format check, type-check, unit tests and build, and the compose smoke test on the built images.
 
-The jobs run on a self-hosted runner (`runs-on: [self-hosted, linux]`) while the repository is private, because the account's free hosted minutes for private repositories are used up this month. Before the repository goes public the workflow goes back to `ubuntu-latest` and the self-hosted runner is removed.
+The jobs currently run on a self-hosted runner. Before the repository goes public the workflow switches to `ubuntu-latest`.
 
-## Security notes
+## License
 
-- No default credentials anywhere: the first admin is created with a one-time setup code that the API prints only to its own log, and the code is retired on use. Passwords are hashed with ASP.NET Core's `PasswordHasher` (PBKDF2).
-- The session cookie is HttpOnly and SameSite=Strict, so cross-site requests do not carry it; the API is only reached through the same origin (nginx in compose, the Vite proxy in development). On every request the cookie's user is checked against the database: a deleted user, or a database recreated under a still-valid cookie, gets a 401 and the cookie cleared, and the app shows "Your session has expired". Data-protection keys live in the API container, so recreating it also signs everyone out.
-- Login is rate limited (10 attempts per minute per client address by default), responses carry `X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy`, and the API container runs as a non-root user.
-- Not covered: HTTPS termination (put it in front of nginx), password reset, audit log.
-
-## Roadmap
-
-- Technician availability (days off, leave) as a seventh rule.
-- Shift templates to roll a week forward.
-- An ILP solver behind the same `AutoScheduler` interface, to compare against the greedy plan.
-- Multi-tenant teams.
+[MIT](LICENSE)
