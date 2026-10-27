@@ -1,5 +1,5 @@
-# One command demo: `docker compose up --build` then open http://localhost:${WEB_PORT:-8090}
-# Sign in with the admin credentials below (override them in a .env file, see .env.example).
+# One command demo: `docker compose up --build`, then open http://localhost:${WEB_PORT:-8090}/setup
+# and enter the setup code the api service prints in its log. No account is seeded.
 services:
   db:
     image: postgres:16-alpine
@@ -19,8 +19,6 @@ services:
     build: ./backend
     environment:
       ConnectionStrings__Default: Host=db;Port=5432;Database=judesk;Username=judesk;Password=${DB_PASSWORD:-judesk}
-      Seed__AdminEmail: ${ADMIN_EMAIL:-admin@judesk.local}
-      Seed__AdminPassword: ${ADMIN_PASSWORD:-ChangeMe123!}
       Seed__Demo: ${SEED_DEMO:-true}
     depends_on:
       db:

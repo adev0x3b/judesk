@@ -5,6 +5,17 @@ export type AssignmentSource = 'Manual' | 'Auto'
 export type ViolationCode =
   'TechnicianInactive' | 'MissingSkill' | 'AlreadyAssigned' | 'ShiftFull' | 'Overlap' | 'MaxHoursExceeded'
 
+export interface SetupStatus {
+  needsSetup: boolean
+}
+
+export interface SetupRequest {
+  code: string
+  email: string
+  displayName: string
+  password: string
+}
+
 export interface User {
   id: string
   email: string

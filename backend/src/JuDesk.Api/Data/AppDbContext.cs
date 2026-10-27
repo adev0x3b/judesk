@@ -11,6 +11,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Site> Sites => Set<Site>();
     public DbSet<Shift> Shifts => Set<Shift>();
     public DbSet<Assignment> Assignments => Set<Assignment>();
+    public DbSet<SetupCode> SetupCodes => Set<SetupCode>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -56,6 +57,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.ToTable(t => t.HasCheckConstraint("ck_shift_headcount", "\"Headcount\" >= 1"));
             e.Ignore(s => s.Duration);
             e.Ignore(s => s.Hours);
+        });
+
+        modelBuilder.Entity<SetupCode>(e =>
+        {
+            e.Property(c => c.Id).ValueGeneratedNever();
+            e.Property(c => c.Code).HasMaxLength(40);
         });
 
         modelBuilder.Entity<Assignment>(e =>

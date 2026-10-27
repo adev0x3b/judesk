@@ -1,6 +1,5 @@
 using JuDesk.Domain.Entities;
 using JuDesk.Domain.Scheduling;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace JuDesk.Api.Data;
@@ -8,36 +7,19 @@ namespace JuDesk.Api.Data;
 public sealed class SeedOptions
 {
     public const string Section = "Seed";
-    public string AdminEmail { get; set; } = "admin@judesk.local";
-    public string AdminPassword { get; set; } = "ChangeMe123!";
-    public string AdminName { get; set; } = "Admin";
     public bool Demo { get; set; } = true;
 }
 
 /// <summary>
-/// Creates the first admin user and, when <see cref="SeedOptions.Demo"/> is on, a realistic
-/// fleet of technicians, sites and shifts around the current week so the demo has something to show.
-/// Idempotent: it only writes when the corresponding tables are empty.
+/// When <see cref="SeedOptions.Demo"/> is on, seeds a realistic fleet of technicians, sites and
+/// shifts around the current week so the demo has something to show. Idempotent: it only writes
+/// when the technicians table is empty. Accounts are never seeded; the first admin is created
+/// through the setup code (see <see cref="Services.SetupService"/>).
 /// </summary>
 public static class DemoSeeder
 {
-    public static async Task SeedAsync(AppDbContext db, SeedOptions options, IPasswordHasher<User> hasher, ILogger logger, CancellationToken ct = default)
+    public static async Task SeedAsync(AppDbContext db, SeedOptions options, ILogger logger, CancellationToken ct = default)
     {
-        if (!await db.Users.AnyAsync(ct))
-        {
-            var admin = new User
-            {
-                Email = options.AdminEmail.Trim().ToLowerInvariant(),
-                DisplayName = options.AdminName,
-                Role = UserRole.Admin,
-                PasswordHash = string.Empty,
-            };
-            admin.PasswordHash = hasher.HashPassword(admin, options.AdminPassword);
-            db.Users.Add(admin);
-            await db.SaveChangesAsync(ct);
-            logger.LogInformation("Created admin user {Email}", admin.Email);
-        }
-
         if (!options.Demo || await db.Technicians.AnyAsync(ct))
         {
             return;

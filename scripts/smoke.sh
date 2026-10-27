@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# End-to-end smoke test of a running compose stack: health, login, week view, rule-checked assignment, CSV export.
+# End-to-end smoke test of a running compose stack: health, first-run setup with the printed code,
+# login, week view, rule-checked assignment, auto-assign, CSV export.
 # Usage: scripts/smoke.sh [base-url]   (default http://localhost:8090)
+# The setup code is read from `docker compose logs api` unless SETUP_CODE is set.
 set -euo pipefail
 
 BASE="${1:-http://localhost:8090}"
-EMAIL="${ADMIN_EMAIL:-admin@judesk.local}"
-PASSWORD="${ADMIN_PASSWORD:-ChangeMe123!}"
+EMAIL="${ADMIN_EMAIL:-smoke@judesk.local}"
+PASSWORD="${ADMIN_PASSWORD:-Smoke-Pass-1}"
 JAR="$(mktemp)"
 trap 'rm -f "$JAR"' EXIT
 
@@ -19,6 +21,21 @@ done
 echo "== anonymous access is refused"
 code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/schedule/week")
 [ "$code" = "401" ] || { echo "expected 401, got $code"; exit 1; }
+
+echo "== first-run setup"
+needs=$(curl -fsS "$BASE/api/setup/status" | python3 -c 'import json,sys; print(json.load(sys.stdin)["needsSetup"])')
+if [ "$needs" = "True" ]; then
+  code="${SETUP_CODE:-$(docker compose logs --no-color api | grep -oE '[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}' | tail -1)}"
+  [ -n "$code" ] || { echo "no setup code found in the api log"; exit 1; }
+  wrong=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d "{\"code\":\"AAAA-AAAA-AAAA\",\"email\":\"$EMAIL\",\"displayName\":\"Smoke\",\"password\":\"$PASSWORD\"}" "$BASE/api/setup")
+  [ "$wrong" = "403" ] || { echo "expected 403 for a wrong code, got $wrong"; exit 1; }
+  curl -fsS -H 'Content-Type: application/json' \
+    -d "{\"code\":\"$code\",\"email\":\"$EMAIL\",\"displayName\":\"Smoke\",\"password\":\"$PASSWORD\"}" "$BASE/api/setup" >/dev/null
+  echo "   admin created with the printed code"
+else
+  echo "   already done"
+fi
 
 echo "== login"
 curl -fsS -c "$JAR" -H 'Content-Type: application/json' \
