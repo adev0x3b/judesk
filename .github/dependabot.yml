@@ -11,6 +11,12 @@ updates:
     groups:
       nuget:
         patterns: ["*"]
+    ignore:
+      # EF Core and friends follow the .NET 8 line.
+      - dependency-name: "Microsoft.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Npgsql.*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: /frontend
     schedule:
@@ -22,3 +28,14 @@ updates:
     directories: ["/backend", "/frontend"]
     schedule:
       interval: weekly
+    ignore:
+      # The runtime majors are chosen on purpose (.NET 8 LTS, Node 24 LTS, PostgreSQL 16).
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
