@@ -134,6 +134,16 @@ public static class AuthEndpoints
             {
                 return Results.Conflict(new { title = "You cannot delete your own account." });
             }
+            var target = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id, ct);
+            if (target is null)
+            {
+                return Results.NotFound();
+            }
+            // Without an admin the app would fall back into setup; keep at least one.
+            if (target.Role == UserRole.Admin && await db.Users.CountAsync(u => u.Role == UserRole.Admin, ct) <= 1)
+            {
+                return Results.Conflict(new { title = "This is the last admin account." });
+            }
             var deleted = await db.Users.Where(u => u.Id == id).ExecuteDeleteAsync(ct);
             return deleted > 0 ? Results.NoContent() : Results.NotFound();
         });

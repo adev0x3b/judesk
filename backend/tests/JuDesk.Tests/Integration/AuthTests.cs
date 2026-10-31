@@ -90,6 +90,29 @@ public class AuthTests(ApiFixture fixture)
     }
 
     [Fact]
+    public async Task The_last_admin_cannot_be_deleted()
+    {
+        var admin = await fixture.AdminClientAsync();
+        var me = await admin.GetFromJsonAsync<UserDto>("/api/auth/me");
+        var second = await admin.PostAsJsonAsync("/api/users", new CreateUserRequest($"admin2-{Guid.NewGuid():N}@test.local", "Second", "Second-Pass-1", UserRole.Admin));
+        second.EnsureSuccessStatusCode();
+        var secondAdmin = await second.Content.ReadFromJsonAsync<UserDto>();
+
+        // Signed in as the second admin: deleting the first one is fine while two exist...
+        var other = fixture.AnonymousClient();
+        (await other.PostAsJsonAsync("/api/auth/login", new LoginRequest(secondAdmin!.Email, "Second-Pass-1"))).EnsureSuccessStatusCode();
+        var admins = (await other.GetFromJsonAsync<List<UserDto>>("/api/users"))!.Where(u => u.Role == UserRole.Admin).ToList();
+        Assert.True(admins.Count >= 2);
+
+        // ...but the fixture admin must survive for the other tests, so delete the second one from the first instead,
+        // then check the guard on a database with exactly one admin left.
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/users/{secondAdmin.Id}")).StatusCode);
+        var self = await admin.DeleteAsync($"/api/users/{me!.Id}");
+        Assert.Equal(HttpStatusCode.Conflict, self.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.DeleteAsync($"/api/users/{Guid.NewGuid()}")).StatusCode);
+    }
+
+    [Fact]
     public async Task Session_of_a_deleted_user_is_rejected_and_the_cookie_cleared()
     {
         var admin = await fixture.AdminClientAsync();

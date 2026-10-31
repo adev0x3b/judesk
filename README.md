@@ -179,9 +179,10 @@ ASP.NET Core 8 (minimal API), Entity Framework Core 8, PostgreSQL 16, Vue 3, Typ
 ## Security
 
 - No default credentials: the first admin is created with a one-time setup code that the API prints only to its own log and retires on use. Passwords are hashed with PBKDF2 (`PasswordHasher`).
-- The session cookie is HttpOnly and SameSite=Strict. On every request the cookie's user is checked against the database, so a deleted user or a recreated database gets a clean 401 and the app shows "Your session has expired".
+- The only cookie is the session, and there are no analytics or third-party requests. The session cookie is HttpOnly and SameSite=Strict. On every request the cookie's user is checked against the database, so a deleted user or a recreated database gets a clean 401 and the app shows "Your session has expired".
 - Login and setup are rate limited per client address (10 attempts a minute by default).
 - Responses carry a `Content-Security-Policy` (no inline scripts, same-origin only), `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy`; the API container runs as a non-root user.
+- The last admin account cannot be deleted, so the app never falls back into setup.
 - Login compares against a dummy hash when the email is unknown, so timing does not reveal which accounts exist. Passwords are 8 to 128 characters.
 - CSV cells that a spreadsheet would run as a formula (`=`, `+`, `-`, `@`) are prefixed with `'`.
 - Session keys live on the `judesk-keys` volume (unencrypted, like the database volume next to it), so sessions survive `docker compose up --build`.
