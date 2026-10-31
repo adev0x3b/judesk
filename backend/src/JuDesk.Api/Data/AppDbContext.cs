@@ -62,7 +62,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<SetupCode>(e =>
         {
             e.Property(c => c.Id).ValueGeneratedNever();
-            e.Property(c => c.Code).HasMaxLength(40);
+            e.Property(c => c.CodeHash).HasMaxLength(64);
         });
 
         modelBuilder.Entity<Assignment>(e =>

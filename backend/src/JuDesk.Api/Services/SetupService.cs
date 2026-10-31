@@ -12,12 +12,16 @@ public enum SetupResult
     Completed,
     AlreadyDone,
     WrongCode,
+    /// <summary>No usable code: none issued yet, or burnt by too many wrong guesses. Regenerate one.</summary>
+    NoCode,
 }
 
 /// <summary>
-/// First-run bootstrap. While the app has no users it is "in setup": a one-time code is issued,
-/// printed to the API log on every start, and whoever enters it on the setup page creates the admin
-/// account. No account or password ever comes from configuration or a seed.
+/// First-run bootstrap. While the app has no users it is "in setup": every API start issues a fresh
+/// one-time code and prints it to the log, and whoever enters it on the setup page creates the admin
+/// account. Only a SHA-256 hash of the code is stored; after <see cref="SetupCode.MaxFailedAttempts"/>
+/// wrong guesses the code is burnt and a new one has to be issued (restart, or
+/// <c>scripts/regen-setup-code.sh</c>). No account or password ever comes from configuration or a seed.
 /// </summary>
 public sealed class SetupService(AppDbContext db, IPasswordHasher<User> hasher, ILogger<SetupService> logger)
 {
@@ -25,68 +29,75 @@ public sealed class SetupService(AppDbContext db, IPasswordHasher<User> hasher, 
 
     public async Task<bool> NeedsSetupAsync(CancellationToken ct = default) => !await db.Users.AnyAsync(ct);
 
-    /// <summary>Returns the current code, issuing one if there is none. Null once setup is done.</summary>
-    public async Task<string?> EnsureCodeAsync(CancellationToken ct = default)
-    {
-        if (!await NeedsSetupAsync(ct))
-        {
-            return null;
-        }
-        var existing = await db.SetupCodes.FirstOrDefaultAsync(ct);
-        return existing?.Code ?? await IssueCodeAsync(ct);
-    }
+    /// <summary>Issues a fresh code if the app still needs setup; null once setup is done.</summary>
+    public async Task<string?> IssueCodeIfNeededAsync(CancellationToken ct = default) =>
+        await NeedsSetupAsync(ct) ? await IssueCodeAsync(ct) : null;
 
-    /// <summary>Replaces any previous code with a fresh one and returns it.</summary>
+    /// <summary>Replaces any previous code with a fresh one and returns it in clear, once.</summary>
     public async Task<string> IssueCodeAsync(CancellationToken ct = default)
     {
         var code = NewCode();
-        var row = await db.SetupCodes.FirstOrDefaultAsync(ct);
+        var row = await db.SetupCodes.SingleOrDefaultAsync(c => c.Id == SetupCode.SingletonId, ct);
         if (row is null)
         {
-            db.SetupCodes.Add(new SetupCode { Code = code });
+            db.SetupCodes.Add(new SetupCode { CodeHash = Hash(code) });
         }
         else
         {
-            row.Code = code;
+            row.CodeHash = Hash(code);
+            row.FailedAttempts = 0;
             row.CreatedAt = DateTime.UtcNow;
         }
         await db.SaveChangesAsync(ct);
         return code;
     }
 
-    public async Task<(SetupResult Result, User? Admin)> CompleteAsync(string code, string email, string displayName, string password, CancellationToken ct = default)
-    {
-        await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
-
-        if (!await NeedsSetupAsync(ct))
+    public Task<(SetupResult Result, User? Admin)> CompleteAsync(string code, string email, string displayName, string password, CancellationToken ct = default) =>
+        Serializable.RunAsync(db, async () =>
         {
-            return (SetupResult.AlreadyDone, null);
-        }
+            if (!await NeedsSetupAsync(ct))
+            {
+                return (SetupResult.AlreadyDone, (User?)null);
+            }
 
-        var row = await db.SetupCodes.FirstOrDefaultAsync(ct);
-        if (row is null || !FixedTimeEquals(Normalize(row.Code), Normalize(code)))
-        {
-            logger.LogWarning("Setup attempt with a wrong code");
-            return (SetupResult.WrongCode, null);
-        }
+            var row = await db.SetupCodes.SingleOrDefaultAsync(c => c.Id == SetupCode.SingletonId, ct);
+            if (row is null)
+            {
+                return (SetupResult.NoCode, null);
+            }
 
-        var admin = new User
-        {
-            Email = email.Trim().ToLowerInvariant(),
-            DisplayName = displayName.Trim(),
-            Role = UserRole.Admin,
-            PasswordHash = string.Empty,
-        };
-        admin.PasswordHash = hasher.HashPassword(admin, password);
-        db.Users.Add(admin);
-        db.SetupCodes.Remove(row);
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
-        logger.LogInformation("Setup completed: admin {Email} created, setup code retired", admin.Email);
-        return (SetupResult.Completed, admin);
-    }
+            if (!FixedTimeEquals(row.CodeHash, Hash(code)))
+            {
+                row.FailedAttempts++;
+                if (row.FailedAttempts >= SetupCode.MaxFailedAttempts)
+                {
+                    db.SetupCodes.Remove(row);
+                    logger.LogWarning("Setup code burnt after {Attempts} wrong guesses; issue a new one with --regen-setup-code", row.FailedAttempts);
+                }
+                else
+                {
+                    logger.LogWarning("Setup attempt with a wrong code ({Attempts}/{Max})", row.FailedAttempts, SetupCode.MaxFailedAttempts);
+                }
+                await db.SaveChangesAsync(ct);
+                return (SetupResult.WrongCode, null);
+            }
 
-    /// <summary>The block printed to the log so `docker compose up` shows the code.</summary>
+            var admin = new User
+            {
+                Email = email.Trim().ToLowerInvariant(),
+                DisplayName = displayName.Trim(),
+                Role = UserRole.Admin,
+                PasswordHash = string.Empty,
+            };
+            admin.PasswordHash = hasher.HashPassword(admin, password);
+            db.Users.Add(admin);
+            db.SetupCodes.Remove(row);
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation("Setup completed: admin account created, setup code retired");
+            return (SetupResult.Completed, admin);
+        }, ct);
+
+    /// <summary>The block printed to the log so `docker compose logs api` shows the code.</summary>
     public static string Banner(string code) => $"""
 
         ==========================================================
@@ -95,7 +106,8 @@ public sealed class SetupService(AppDbContext db, IPasswordHasher<User> hasher, 
 
               {code}
 
-          A new code: scripts/regen-setup-code.sh
+          The code changes on every restart.
+          A new one now: scripts/regen-setup-code.sh
         ==========================================================
 
         """;
@@ -109,6 +121,9 @@ public sealed class SetupService(AppDbContext db, IPasswordHasher<User> hasher, 
         }
         return $"{new string(chars, 0, 4)}-{new string(chars, 4, 4)}-{new string(chars, 8, 4)}";
     }
+
+    internal static string Hash(string code) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Normalize(code))));
 
     private static string Normalize(string code) => code.Replace("-", "").Replace(" ", "").ToUpperInvariant();
 
