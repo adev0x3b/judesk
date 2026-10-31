@@ -68,14 +68,14 @@ public static class ShiftEndpoints
             }
             if (shift.Assignments.Count > request.Headcount)
             {
-                return Results.Conflict(new { title = $"The shift already has {shift.Assignments.Count} technicians; unassign before lowering the headcount." });
+                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: $"The shift already has {shift.Assignments.Count} technicians; unassign before lowering the headcount.");
             }
             var timeOrSkillChanged = shift.StartsAt != Utc.Normalize(request.StartsAt)
                 || shift.EndsAt != Utc.Normalize(request.EndsAt)
                 || shift.RequiredSkillId != request.RequiredSkillId;
             if (timeOrSkillChanged && shift.Assignments.Count > 0)
             {
-                return Results.Conflict(new { title = "Unassign the technicians before changing the time or skill of a shift." });
+                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Unassign the technicians before changing the time or skill of a shift.");
             }
             Apply(shift, request);
             await db.SaveChangesAsync(ct);

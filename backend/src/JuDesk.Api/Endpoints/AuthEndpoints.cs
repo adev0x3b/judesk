@@ -37,7 +37,7 @@ public static class AuthEndpoints
             }
             if (await setup.NeedsSetupAsync(ct))
             {
-                return Results.Conflict(new { title = "Create the admin account on /setup first." });
+                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Create the admin account on /setup first.");
             }
             var user = await demo.SignInUserAsync(ct) ?? throw new InvalidOperationException("Demo is enabled but no demo user came back.");
             await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, user.ToPrincipal());
@@ -116,7 +116,7 @@ public static class AuthEndpoints
             }
             if (await db.Users.AnyAsync(u => u.Email == email, ct))
             {
-                return Results.Conflict(new { title = "A user with this email already exists." });
+                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "A user with this email already exists.");
             }
 
             var user = new User { Email = email, DisplayName = request.DisplayName.Trim(), Role = request.Role, PasswordHash = string.Empty };
@@ -132,7 +132,7 @@ public static class AuthEndpoints
         {
             if (http.User.UserId() == id)
             {
-                return Results.Conflict(new { title = "You cannot delete your own account." });
+                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "You cannot delete your own account.");
             }
             var target = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id, ct);
             if (target is null)
@@ -142,7 +142,7 @@ public static class AuthEndpoints
             // Without an admin the app would fall back into setup; keep at least one.
             if (target.Role == UserRole.Admin && await db.Users.CountAsync(u => u.Role == UserRole.Admin, ct) <= 1)
             {
-                return Results.Conflict(new { title = "This is the last admin account." });
+                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "This is the last admin account.");
             }
             var deleted = await db.Users.Where(u => u.Id == id).ExecuteDeleteAsync(ct);
             return deleted > 0 ? Results.NoContent() : Results.NotFound();

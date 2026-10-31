@@ -30,6 +30,8 @@ Shift scheduling for field technicians. Keep a roster of technicians with skills
 | Public demo banner | Login with "Try the demo" |
 | ![](docs/screenshots/demo.png) | ![](docs/screenshots/login.png) |
 
+![Dark mode](docs/screenshots/schedule-dark.png)
+
 ## Quick start
 
 Requires Docker with Compose.
@@ -54,9 +56,9 @@ The `api` service prints a one-time setup code in its log:
 ==========================================================
 ```
 
-Open <http://localhost:8090>. Until an admin exists the app shows only the setup page: enter the code with your name, email and password and you are signed in. Only a hash of the code is stored, a fresh one is issued on every restart until setup is done, and five wrong guesses burn it; `scripts/regen-setup-code.sh` prints a new one without a restart.
+Open <http://127.0.0.1:8090>. Until an admin exists the app shows only the setup page: enter the code with your name, email and password and you are signed in. Only a hash of the code is stored, a fresh one is issued on every restart until setup is done, and five wrong guesses burn it; `scripts/regen-setup-code.sh` prints a new one without a restart.
 
-The database starts with a demo fleet (8 technicians, 4 sites, three weeks of shifts around today) so there is something to schedule. Swagger UI is at <http://localhost:8090/swagger>.
+The database starts with a demo fleet (8 technicians, 4 sites, three weeks of shifts around today) so there is something to schedule. Swagger UI is at <http://127.0.0.1:8090/swagger> (`SWAGGER_ENABLED=false` hides it).
 
 ## Configuration
 
@@ -68,6 +70,7 @@ Copy [`.env.example`](.env.example) to `.env` to change the defaults.
 | `WEB_BIND` | `127.0.0.1` | Address the port is published on. `0.0.0.0` opens it to the network. |
 | `DB_PASSWORD` | `judesk` | PostgreSQL password. |
 | `SEED_DEMO` | `true` | Seed the demo fleet on an empty database. |
+| `SWAGGER_ENABLED` | `true` | Swagger UI at `/swagger`. |
 | `DEMO_MODE` | `false` | Public demo: "Try the demo" on the login page and a data reset on a timer. |
 | `DEMO_RESET_MINUTES` | `60` | How often the demo fleet is put back to the seed. |
 | `PROXY_FORWARD_LIMIT` | `1` | Proxies in front of nginx; `2` behind a tunnel or CDN that adds the client address. |
@@ -134,18 +137,19 @@ A week runs Monday to Sunday in UTC. A shift belongs to a site, needs one skill 
 | `Overlap` | Another assigned shift that week overlaps in time. Back-to-back is fine. |
 | `MaxHoursExceeded` | Hours that week would exceed the technician's limit. The only rule a planner can override. |
 
-[`AutoScheduler`](backend/src/JuDesk.Domain/Scheduling/AutoScheduler.cs) fills a week's open slots: it sorts shifts by how many technicians are eligible (fewest first), then gives each slot to the eligible technician with the fewest hours already scheduled, ties broken by name. It works on a copy of the data, applies the same rules, and explains every slot it leaves open. Assignments it makes are marked `Auto` so they can be removed without touching manual ones.
+[`AutoScheduler`](backend/src/JuDesk.Domain/Scheduling/AutoScheduler.cs) fills a week's open slots: it sorts shifts by how many technicians are eligible (fewest first), then gives each slot to the eligible technician with the fewest hours already scheduled, then the fewest shifts, then by name. It works on a copy of the data, applies the same rules, and explains every slot it leaves open. Assignments it makes are marked `Auto` so they can be removed without touching manual ones.
 
 Both live in the `JuDesk.Domain` project, which has no dependency on EF Core or ASP.NET, so the rules are plain functions over in-memory objects.
 
 ## API
 
-All routes under `/api` need a session except setup and login. `/api/users` needs the Admin role. Dates are ISO-8601 UTC; a week is identified by its Monday. Errors are RFC 7807 problem details.
+All routes under `/api` need a session except setup, login and the demo status. `/api/users` needs the Admin role. Dates are ISO-8601 UTC; a week is identified by its Monday. Errors are RFC 7807 problem details.
 
 | Method and path | Purpose |
 | --- | --- |
 | `GET /api/setup/status`, `POST /api/setup` | Whether the first admin still has to be created, and creating it with the printed code. `403` on a wrong code, `409` once done. |
 | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` | Cookie session. |
+| `GET /api/demo`, `POST /api/auth/demo` | Whether the public demo is on and when it resets; signing in as the demo planner (`404` when off, `409` before setup). |
 | `GET/POST/DELETE /api/users` | Accounts (Admin only). |
 | `GET/POST/DELETE /api/skills` | Skills. A skill that shifts still require cannot be deleted. |
 | `GET/POST/PUT/DELETE /api/technicians` | Technicians with skills, weekly hours limit and active flag. |
@@ -181,7 +185,7 @@ ASP.NET Core 8 (minimal API), Entity Framework Core 8, PostgreSQL 16, Vue 3, Typ
 - No default credentials: the first admin is created with a one-time setup code that the API prints only to its own log and retires on use. Passwords are hashed with PBKDF2 (`PasswordHasher`).
 - The only cookie is the session, and there are no analytics or third-party requests. The session cookie is HttpOnly and SameSite=Strict. On every request the cookie's user is checked against the database, so a deleted user or a recreated database gets a clean 401 and the app shows "Your session has expired".
 - Login and setup are rate limited per client address (10 attempts a minute by default).
-- Responses carry a `Content-Security-Policy` (no inline scripts, same-origin only), `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy`; the API container runs as a non-root user.
+- Pages carry a `Content-Security-Policy` (no inline scripts, same-origin only); every response carries `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy`. Both containers run as non-root users.
 - The last admin account cannot be deleted, so the app never falls back into setup.
 - Login compares against a dummy hash when the email is unknown, so timing does not reveal which accounts exist. Passwords are 8 to 128 characters.
 - CSV cells that a spreadsheet would run as a formula (`=`, `+`, `-`, `@`) are prefixed with `'`.

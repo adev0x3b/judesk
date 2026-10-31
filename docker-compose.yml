@@ -1,9 +1,17 @@
 # One command demo: `docker compose up --build`, then open http://localhost:${WEB_PORT:-8090}/setup
 # and enter the setup code the api service prints in its log. No account is seeded.
+# Container logs are capped so a long-running demo does not fill the disk.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_DB: judesk
       POSTGRES_USER: judesk
@@ -19,6 +27,7 @@ services:
   api:
     build: ./backend
     restart: unless-stopped
+    logging: *logging
     environment:
       ConnectionStrings__Default: Host=db;Port=5432;Database=judesk;Username=judesk;Password=${DB_PASSWORD:-judesk}
       Seed__Demo: ${SEED_DEMO:-true}
@@ -27,6 +36,7 @@ services:
       Proxy__ForwardLimit: ${PROXY_FORWARD_LIMIT:-1}
       Demo__Mode: ${DEMO_MODE:-false}
       Demo__ResetMinutes: ${DEMO_RESET_MINUTES:-60}
+      Swagger__Enabled: ${SWAGGER_ENABLED:-true}
       DataProtection__KeysPath: /keys
     volumes:
       - judesk-keys:/keys
@@ -37,9 +47,10 @@ services:
   web:
     build: ./frontend
     restart: unless-stopped
+    logging: *logging
     ports:
       # Loopback only by default; set WEB_BIND=0.0.0.0 to reach it from other machines.
-      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8090}:80"
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8090}:8080"
     depends_on:
       api:
         condition: service_healthy

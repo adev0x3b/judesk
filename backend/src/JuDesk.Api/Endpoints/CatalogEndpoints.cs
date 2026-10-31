@@ -31,7 +31,7 @@ public static class CatalogEndpoints
             }
             if (await db.Skills.AnyAsync(s => s.Name == name, ct))
             {
-                return Results.Conflict(new { title = "A skill with this name already exists." });
+                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "A skill with this name already exists.");
             }
             var skill = new Skill { Name = name };
             db.Skills.Add(skill);
@@ -43,7 +43,7 @@ public static class CatalogEndpoints
         {
             if (await db.Shifts.AnyAsync(s => s.RequiredSkillId == id, ct))
             {
-                return Results.Conflict(new { title = "Shifts still require this skill." });
+                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Shifts still require this skill.");
             }
             var deleted = await db.Skills.Where(s => s.Id == id).ExecuteDeleteAsync(ct);
             return deleted > 0 ? Results.NoContent() : Results.NotFound();
@@ -98,7 +98,7 @@ public static class CatalogEndpoints
                     .ToListAsync(ct);
                 if (stillNeeded.Count > 0)
                 {
-                    return Results.Conflict(new { title = $"Upcoming shifts still need {string.Join(", ", stillNeeded)}; unassign them before removing the skill." });
+                    return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: $"Upcoming shifts still need {string.Join(", ", stillNeeded)}; unassign them before removing the skill.");
                 }
             }
             await ApplyAsync(technician, request, db, ct);

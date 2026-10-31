@@ -97,8 +97,12 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseSwagger();
-app.UseSwaggerUI(options => options.SwaggerEndpoint("/swagger/v1/swagger.json", "JuDesk API v1"));
+// Swagger UI is on by default so the API is browsable; Swagger:Enabled=false hides it on a public site.
+if (builder.Configuration.GetValue("Swagger:Enabled", true))
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(options => options.SwaggerEndpoint("/swagger/v1/swagger.json", "JuDesk API v1"));
+}
 
 app.MapHealthChecks("/health").AllowAnonymous();
 

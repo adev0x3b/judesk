@@ -58,6 +58,7 @@ for s in w["shifts"]:
             if t["active"] and s["requiredSkillName"] not in t["skills"]:
                 print(s["id"], t["id"]); raise SystemExit
 ')
+[ -n "$pair" ] || { echo "no open shift with an unqualified technician in the seed week"; exit 1; }
 set -- $pair
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" -H 'Content-Type: application/json' \
   -d "{\"technicianId\":\"$2\"}" "$BASE/api/shifts/$1/assignments")
