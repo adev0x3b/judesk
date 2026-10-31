@@ -18,9 +18,9 @@ public sealed class SeedOptions
 /// </summary>
 public static class DemoSeeder
 {
-    public static async Task SeedAsync(AppDbContext db, SeedOptions options, ILogger logger, CancellationToken ct = default)
+    public static async Task SeedAsync(AppDbContext db, SeedOptions options, ILogger logger, CancellationToken ct = default, bool force = false)
     {
-        if (!options.Demo || await db.Technicians.AnyAsync(ct))
+        if (!options.Demo || (!force && await db.Technicians.AnyAsync(ct)))
         {
             return;
         }

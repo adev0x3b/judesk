@@ -18,7 +18,15 @@ public static class ShiftEndpoints
         {
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
             from ??= IsoWeek.Containing(today).Monday;
+            if (!Dates.IsSane(from.Value))
+            {
+                return Dates.Problem("from");
+            }
             to ??= from.Value.AddDays(27);
+            if (!Dates.IsSane(to.Value))
+            {
+                return Dates.Problem("to");
+            }
             if (to < from || to.Value.DayNumber - from.Value.DayNumber > 92)
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["to"] = ["Must be after 'from' and within 92 days of it."] });
@@ -41,8 +49,12 @@ public static class ShiftEndpoints
             return shift is null ? Results.NotFound() : Results.Ok(shift.ToDto());
         }).Produces<ShiftDto>();
 
-        group.MapPost("/", async (ShiftRequest request, AppDbContext db, CancellationToken ct) =>
+        group.MapPost("/", async (ShiftRequest request, AppDbContext db, DemoService demo, CancellationToken ct) =>
         {
+            if (await demo.CapAsync(db.Shifts, catalog: false, "shifts", ct) is { } capped)
+            {
+                return capped;
+            }
             if (await ValidateAsync(request, db, ct) is { } problem)
             {
                 return problem;
@@ -140,6 +152,7 @@ public static class ShiftEndpoints
         var starts = Utc.Normalize(request.StartsAt);
         var ends = Utc.Normalize(request.EndsAt);
         return new Validation()
+            .SaneDate("startsAt", starts)
             .Must("siteId", await db.Sites.AnyAsync(s => s.Id == request.SiteId, ct), "Unknown site.")
             .Must("requiredSkillId", await db.Skills.AnyAsync(s => s.Id == request.RequiredSkillId, ct), "Unknown skill.")
             .Must("endsAt", ends > starts, "Must be after the start.")
@@ -157,18 +170,26 @@ public static class ScheduleEndpoints
         var group = api.MapGroup("/schedule").WithTags("Schedule");
 
         group.MapGet("/week", async (DateOnly? weekStart, ScheduleService schedule, CancellationToken ct) =>
-            await schedule.GetWeekAsync(WeekOf(weekStart), ct))
-            .Produces<WeekScheduleDto>();
+            BadWeek(weekStart) ? Dates.Problem("weekStart") : Results.Ok(await schedule.GetWeekAsync(WeekOf(weekStart), ct)))
+            .Produces<WeekScheduleDto>().ProducesValidationProblem();
 
+        // The planner is CPU work over the whole week, so only a few run at once (RateLimits:HeavyConcurrency).
         group.MapPost("/auto-assign", async (AutoAssignRequest request, ScheduleService schedule, CancellationToken ct) =>
-            await schedule.AutoAssignAsync(IsoWeek.Containing(request.WeekStart), request.DryRun, ct))
-            .Produces<AutoAssignResultDto>();
+            !Dates.IsSane(request.WeekStart)
+                ? Dates.Problem("weekStart")
+                : Results.Ok(await schedule.AutoAssignAsync(IsoWeek.Containing(request.WeekStart), request.DryRun, ct)))
+            .RequireRateLimiting(RateLimits.HeavyPolicy)
+            .Produces<AutoAssignResultDto>().ProducesValidationProblem();
 
         group.MapDelete("/auto-assignments", async (DateOnly? weekStart, ScheduleService schedule, CancellationToken ct) =>
-            Results.Ok(new { removed = await schedule.ClearAutoAssignmentsAsync(WeekOf(weekStart), ct) }));
+            BadWeek(weekStart) ? Dates.Problem("weekStart") : Results.Ok(new { removed = await schedule.ClearAutoAssignmentsAsync(WeekOf(weekStart), ct) }));
 
         group.MapGet("/export", async (DateOnly? weekStart, ScheduleService schedule, CancellationToken ct) =>
         {
+            if (BadWeek(weekStart))
+            {
+                return Dates.Problem("weekStart");
+            }
             var week = WeekOf(weekStart);
             var csv = await schedule.ExportCsvAsync(week, ct);
             return Results.File(System.Text.Encoding.UTF8.GetBytes(csv), "text/csv; charset=utf-8", $"judesk-week-{week.Monday:yyyy-MM-dd}.csv");
@@ -179,4 +200,6 @@ public static class ScheduleEndpoints
 
     private static IsoWeek WeekOf(DateOnly? weekStart) =>
         weekStart is { } d ? IsoWeek.Containing(d) : IsoWeek.Containing(DateTime.UtcNow);
+
+    private static bool BadWeek(DateOnly? weekStart) => weekStart is { } d && !Dates.IsSane(d);
 }

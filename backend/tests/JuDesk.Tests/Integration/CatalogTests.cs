@@ -80,13 +80,35 @@ public class CatalogTests(ApiFixture fixture)
     }
 
     [Fact]
+    public async Task Sites_and_technicians_with_upcoming_work_cannot_be_deleted()
+    {
+        var client = await fixture.AdminClientAsync();
+        var skill = await client.CreateSkillAsync();
+        var site = await client.CreateSiteAsync();
+        var tech = await client.CreateTechnicianAsync("Busy Bee", 40, true, skill.Id);
+        var shift = await client.CreateShiftAsync(site.Id, skill.Id, new DateTime(2032, 5, 3, 8, 0, 0, DateTimeKind.Utc), 8);
+        var assignment = await (await client.AssignAsync(shift.Id, tech.Id)).Content.ReadFromJsonAsync<AssignmentDto>();
+
+        Assert.Equal(HttpStatusCode.Conflict, (await client.DeleteAsync($"/api/sites/{site.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.DeleteAsync($"/api/technicians/{tech.Id}")).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/shifts/{shift.Id}/assignments/{assignment!.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/technicians/{tech.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/shifts/{shift.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/sites/{site.Id}")).StatusCode);
+    }
+
+    [Fact]
     public async Task Site_colour_is_validated()
     {
         var client = await fixture.AdminClientAsync();
 
         var response = await client.PostAsJsonAsync("/api/sites", new SiteRequest("Bad colour", null, "blue"));
-
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        // .NET's `$` matches before a trailing newline; the colour ends up in a style attribute, so be strict.
+        var sneaky = await client.PostAsJsonAsync("/api/sites", new SiteRequest("Sneaky colour", null, "#2563eb\n"));
+        Assert.Equal(HttpStatusCode.BadRequest, sneaky.StatusCode);
     }
 
     private sealed record ValidationProblem(Dictionary<string, string[]> Errors);

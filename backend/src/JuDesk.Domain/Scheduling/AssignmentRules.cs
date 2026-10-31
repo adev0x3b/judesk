@@ -13,12 +13,13 @@ public static class AssignmentRules
     /// </summary>
     /// <param name="technician">The candidate, with Skills loaded.</param>
     /// <param name="shift">The target shift, with RequiredSkill and Assignments loaded.</param>
-    /// <param name="technicianShiftsInWeek">
+    /// <param name="technicianShifts">
     /// Every shift the technician is already assigned to in the ISO week that contains the target
-    /// shift, excluding the target shift itself.
+    /// shift, plus any on the days around it: all of them count for the overlap check, only the
+    /// ones starting in that week count towards the weekly hours. The target shift itself is ignored.
     /// </param>
-    public static IReadOnlyList<Violation> Check(Technician technician, Shift shift, IEnumerable<Shift> technicianShiftsInWeek) =>
-        Check(technician, shift, technicianShiftsInWeek, shift.Assignments.Count, shift.Assignments.Any(a => a.TechnicianId == technician.Id));
+    public static IReadOnlyList<Violation> Check(Technician technician, Shift shift, IEnumerable<Shift> technicianShifts) =>
+        Check(technician, shift, technicianShifts, shift.Assignments.Count, shift.Assignments.Any(a => a.TechnicianId == technician.Id));
 
     /// <summary>
     /// Same check with the shift's occupancy given explicitly, for callers that plan several
@@ -26,7 +27,7 @@ public static class AssignmentRules
     /// </summary>
     /// <param name="assignedCount">How many technicians are on the shift right now.</param>
     /// <param name="alreadyAssigned">Whether this technician is one of them.</param>
-    public static IReadOnlyList<Violation> Check(Technician technician, Shift shift, IEnumerable<Shift> technicianShiftsInWeek, int assignedCount, bool alreadyAssigned)
+    public static IReadOnlyList<Violation> Check(Technician technician, Shift shift, IEnumerable<Shift> technicianShifts, int assignedCount, bool alreadyAssigned)
     {
         var violations = new List<Violation>();
 
@@ -50,7 +51,7 @@ public static class AssignmentRules
             violations.Add(new Violation(ViolationCode.ShiftFull, $"This shift already has {shift.Headcount} technician(s)."));
         }
 
-        var existing = technicianShiftsInWeek.Where(s => s.Id != shift.Id).ToList();
+        var existing = technicianShifts.Where(s => s.Id != shift.Id).ToList();
 
         foreach (var other in existing.Where(shift.Overlaps).OrderBy(s => s.StartsAt))
         {
@@ -60,7 +61,8 @@ public static class AssignmentRules
                 other.Id));
         }
 
-        var scheduled = existing.Sum(s => s.Hours);
+        var week = IsoWeek.Containing(shift.StartsAt);
+        var scheduled = existing.Where(s => week.Contains(s.StartsAt)).Sum(s => s.Hours);
         var projected = scheduled + shift.Hours;
         if (projected > technician.MaxWeeklyHours)
         {

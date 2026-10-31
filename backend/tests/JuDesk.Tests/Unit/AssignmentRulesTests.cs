@@ -55,6 +55,22 @@ public class AssignmentRulesTests
     }
 
     [Fact]
+    public void A_shift_from_the_previous_week_still_counts_for_overlap_but_not_for_hours()
+    {
+        var tech = Tech("Giulia", maxHours: 8, skills: Electrical);
+        var sundayNight = ShiftAt(-1, 22, 8, Electrical).Assigned(tech); // Sun 22:00 - Mon 06:00, previous ISO week
+        var mondayEarly = ShiftAt(0, 0, 8, Electrical);                  // Mon 00:00 - 08:00
+        var mondayLate = ShiftAt(0, 10, 8, Electrical);                  // Mon 10:00 - 18:00
+
+        var overlapping = AssignmentRules.Check(tech, mondayEarly, [sundayNight]);
+        Assert.Contains(overlapping, v => v.Code == ViolationCode.Overlap && v.ConflictingShiftId == sundayNight.Id);
+
+        // 8 h on Sunday belong to last week, so Monday's 8 h still fit the 8 h limit.
+        var later = AssignmentRules.Check(tech, mondayLate, [sundayNight]);
+        Assert.Empty(later);
+    }
+
+    [Fact]
     public void Back_to_back_shifts_do_not_overlap()
     {
         var tech = Tech("Giulia", skills: Electrical);

@@ -44,6 +44,7 @@ public sealed class ApiFixture : IAsyncLifetime
             builder.UseSetting("Seed:Demo", "false");
             // Every test logs in from the same loopback address; keep the brute-force limiter out of the way.
             builder.UseSetting("Auth:LoginAttemptsPerMinute", "100000");
+            builder.UseSetting("RateLimits:RequestsPerMinute", "100000");
         });
 
     /// <summary>Issues a setup code the way a restart or the regen script does, and creates the admin with it.</summary>

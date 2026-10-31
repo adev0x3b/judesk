@@ -53,16 +53,16 @@ public sealed class ScheduleService(AppDbContext db)
         }
 
         var week = IsoWeek.Containing(shift.StartsAt);
-        var technicians = await db.Technicians.AsNoTracking().Include(t => t.Skills).OrderBy(t => t.FullName).ToListAsync(ct);
-        var weekShifts = await LoadWeekShiftsAsync(week, ct);
+        var technicians = await db.Technicians.AsNoTracking().Include(t => t.Skills).OrderBy(t => t.FullName).ThenBy(t => t.Id).ToListAsync(ct);
+        var around = await LoadShiftsAroundAsync(week, ct);
 
         return technicians.Select(t =>
         {
-            var mine = weekShifts.Where(s => s.Assignments.Any(a => a.TechnicianId == t.Id)).ToList();
+            var mine = around.Where(s => s.Assignments.Any(a => a.TechnicianId == t.Id)).ToList();
             var violations = AssignmentRules.Check(t, shift, mine);
             return new CandidateDto(
                 t.Id, t.FullName,
-                Math.Round(mine.Where(s => s.Id != shift.Id).Sum(s => s.Hours), 2),
+                Math.Round(mine.Where(s => s.Id != shift.Id && week.Contains(s.StartsAt)).Sum(s => s.Hours), 2),
                 t.MaxWeeklyHours,
                 violations.Count == 0,
                 violations.Select(v => v.ToDto()).ToList());
@@ -90,7 +90,7 @@ public sealed class ScheduleService(AppDbContext db)
         var week = IsoWeek.Containing(shift.StartsAt);
         var mine = await db.Shifts.AsNoTracking()
             .Include(s => s.Site)
-            .Where(s => s.StartsAt >= week.StartUtc && s.StartsAt < week.EndUtc)
+            .Where(AroundWeek(week))
             .Where(s => s.Assignments.Any(a => a.TechnicianId == technicianId))
             .ToListAsync(ct);
 
@@ -119,8 +119,9 @@ public sealed class ScheduleService(AppDbContext db)
     public Task<AutoAssignResultDto> AutoAssignAsync(IsoWeek week, bool dryRun, CancellationToken ct) => Serializable.RunAsync(db, async () =>
     {
         var shifts = await LoadWeekShiftsAsync(week, ct);
-        var technicians = await db.Technicians.AsNoTracking().Include(t => t.Skills).Where(t => t.Active).ToListAsync(ct);
-        var plan = AutoScheduler.Plan(shifts, technicians);
+        var surrounding = (await LoadShiftsAroundAsync(week, ct)).Where(s => !week.Contains(s.StartsAt)).ToList();
+        var technicians = await db.Technicians.AsNoTracking().Include(t => t.Skills).Where(t => t.Active).OrderBy(t => t.FullName).ThenBy(t => t.Id).ToListAsync(ct);
+        var plan = AutoScheduler.Plan(shifts, technicians, surrounding);
         var names = technicians.ToDictionary(t => t.Id, t => t.FullName);
 
         if (!dryRun && plan.Assignments.Count > 0)
@@ -199,6 +200,21 @@ public sealed class ScheduleService(AppDbContext db)
         }
         return '"' + value.Replace("\"", "\"\"") + '"';
     }
+
+    /// <summary>Shifts that touch the week or the day on either side: enough to catch overlaps across Monday midnight.</summary>
+    private static System.Linq.Expressions.Expression<Func<Shift, bool>> AroundWeek(IsoWeek week)
+    {
+        var from = week.StartUtc.AddDays(-1);
+        var to = week.EndUtc.AddDays(1);
+        return s => s.StartsAt < to && s.EndsAt > from;
+    }
+
+    private Task<List<Shift>> LoadShiftsAroundAsync(IsoWeek week, CancellationToken ct) =>
+        db.Shifts.AsNoTracking()
+            .Include(s => s.Site)
+            .Include(s => s.Assignments)
+            .Where(AroundWeek(week))
+            .ToListAsync(ct);
 
     private Task<List<Shift>> LoadWeekShiftsAsync(IsoWeek week, CancellationToken ct) =>
         db.Shifts.AsNoTracking()

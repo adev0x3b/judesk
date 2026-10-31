@@ -22,8 +22,12 @@ public static class CatalogEndpoints
         group.MapGet("/", async (AppDbContext db, CancellationToken ct) =>
             await db.Skills.AsNoTracking().OrderBy(s => s.Name).Select(s => s.ToDto()).ToListAsync(ct));
 
-        group.MapPost("/", async (SkillRequest request, AppDbContext db, CancellationToken ct) =>
+        group.MapPost("/", async (SkillRequest request, AppDbContext db, DemoService demo, CancellationToken ct) =>
         {
+            if (await demo.CapAsync(db.Skills, catalog: true, "skills", ct) is { } capped)
+            {
+                return capped;
+            }
             var name = request.Name?.Trim() ?? string.Empty;
             if (new Validation().Require("name", name, 80).Problem() is { } problem)
             {
@@ -62,8 +66,12 @@ public static class CatalogEndpoints
             return technician is null ? Results.NotFound() : Results.Ok(technician.ToDto());
         }).Produces<TechnicianDto>();
 
-        group.MapPost("/", async (TechnicianRequest request, AppDbContext db, CancellationToken ct) =>
+        group.MapPost("/", async (TechnicianRequest request, AppDbContext db, DemoService demo, CancellationToken ct) =>
         {
+            if (await demo.CapAsync(db.Technicians, catalog: true, "technicians", ct) is { } capped)
+            {
+                return capped;
+            }
             if (await ValidateAsync(request, db, ct) is { } problem)
             {
                 return problem;
@@ -108,6 +116,12 @@ public static class CatalogEndpoints
 
         group.MapDelete("/{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
         {
+            // Past assignments go with the technician; upcoming ones must be handed over first.
+            var now = DateTime.UtcNow;
+            if (await db.Assignments.AnyAsync(a => a.TechnicianId == id && a.Shift!.EndsAt > now, ct))
+            {
+                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "This technician is still assigned to upcoming shifts; unassign them first.");
+            }
             var deleted = await db.Technicians.Where(t => t.Id == id).ExecuteDeleteAsync(ct);
             return deleted > 0 ? Results.NoContent() : Results.NotFound();
         });
@@ -142,8 +156,12 @@ public static class CatalogEndpoints
         group.MapGet("/", async (AppDbContext db, CancellationToken ct) =>
             await db.Sites.AsNoTracking().OrderBy(s => s.Name).Select(s => s.ToDto()).ToListAsync(ct));
 
-        group.MapPost("/", async (SiteRequest request, AppDbContext db, CancellationToken ct) =>
+        group.MapPost("/", async (SiteRequest request, AppDbContext db, DemoService demo, CancellationToken ct) =>
         {
+            if (await demo.CapAsync(db.Sites, catalog: true, "sites", ct) is { } capped)
+            {
+                return capped;
+            }
             if (Validate(request) is { } problem)
             {
                 return problem;
@@ -174,6 +192,12 @@ public static class CatalogEndpoints
 
         group.MapDelete("/{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
         {
+            // Deleting a site would silently take its shifts and assignments with it.
+            var now = DateTime.UtcNow;
+            if (await db.Shifts.AnyAsync(s => s.SiteId == id && s.EndsAt > now, ct))
+            {
+                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "This site still has upcoming shifts; delete or move them first.");
+            }
             var deleted = await db.Sites.Where(s => s.Id == id).ExecuteDeleteAsync(ct);
             return deleted > 0 ? Results.NoContent() : Results.NotFound();
         });
@@ -181,7 +205,7 @@ public static class CatalogEndpoints
         static IResult? Validate(SiteRequest request) => new Validation()
             .Require("name", request.Name, 120)
             .MaxLength("address", request.Address, 300)
-            .Must("color", request.Color is null or { Length: 0 } || System.Text.RegularExpressions.Regex.IsMatch(request.Color, "^#[0-9a-fA-F]{6}$"), "Must be a #rrggbb colour.")
+            .Must("color", request.Color is null or { Length: 0 } || System.Text.RegularExpressions.Regex.IsMatch(request.Color, @"^#[0-9a-fA-F]{6}\z"), "Must be a #rrggbb colour.")
             .Problem();
     }
 

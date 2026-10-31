@@ -77,7 +77,7 @@ Copy [`.env.example`](.env.example) to `.env` to change the defaults.
 
 ### Public demo
 
-`DEMO_MODE=true` adds a "Try the demo" button to the login page. It signs the visitor in as one shared planner account (random password, never shown), a banner says when the next reset is, and every `DEMO_RESET_MINUTES` the technicians, sites, skills, shifts and assignments go back to the sample fleet. Accounts are kept, so the admin created at setup can still sign in with a password. Behind Cloudflare Tunnel set `PROXY_FORWARD_LIMIT=2` so the login limit counts visitors, not the tunnel.
+`DEMO_MODE=true` adds a "Try the demo" button to the login page. It signs the visitor in as one shared planner account (random password, never shown), a banner says when the next reset is, and every `DEMO_RESET_MINUTES` the technicians, sites, skills, shifts and assignments go back to the sample fleet. Accounts are kept, so the admin created at setup can still sign in with a password. The demo caps each catalog table at 300 rows and shifts at 3000 (`Demo__MaxCatalogRows`, `Demo__MaxShifts`), so one visitor cannot slow it down for the others. Behind Cloudflare Tunnel set `PROXY_FORWARD_LIMIT=2` so the login limit counts visitors, not the tunnel.
 
 The API itself is configured through [`appsettings.json`](backend/src/JuDesk.Api/appsettings.json) and the usual ASP.NET Core environment variables (`ConnectionStrings__Default`, `Seed__Demo`, `Auth__LoginAttemptsPerMinute`).
 
@@ -152,8 +152,8 @@ All routes under `/api` need a session except setup, login and the demo status. 
 | `GET /api/demo`, `POST /api/auth/demo` | Whether the public demo is on and when it resets; signing in as the demo planner (`404` when off, `409` before setup). |
 | `GET/POST/DELETE /api/users` | Accounts (Admin only). |
 | `GET/POST/DELETE /api/skills` | Skills. A skill that shifts still require cannot be deleted. |
-| `GET/POST/PUT/DELETE /api/technicians` | Technicians with skills, weekly hours limit and active flag. |
-| `GET/POST/PUT/DELETE /api/sites` | Sites with an optional colour. |
+| `GET/POST/PUT/DELETE /api/technicians` | Technicians with skills, weekly hours limit and active flag. One with upcoming assignments cannot be deleted. |
+| `GET/POST/PUT/DELETE /api/sites` | Sites with an optional colour. A site with upcoming shifts cannot be deleted. |
 | `GET/POST/PUT/DELETE /api/shifts` | Shifts. `GET` takes `from` and `to` dates. Time and skill are locked while someone is assigned. |
 | `GET /api/shifts/{id}/candidates` | Every technician with their hours that week, eligibility and violations. |
 | `POST /api/shifts/{id}/assignments` | Assign. `409` with a `violations` array when a rule fails; `overrideHours: true` waives only the hours limit. |
@@ -184,12 +184,14 @@ ASP.NET Core 8 (minimal API), Entity Framework Core 8, PostgreSQL 16, Vue 3, Typ
 
 - No default credentials: the first admin is created with a one-time setup code that the API prints only to its own log and retires on use. Passwords are hashed with PBKDF2 (`PasswordHasher`).
 - The only cookie is the session, and there are no analytics or third-party requests. The session cookie is HttpOnly and SameSite=Strict. On every request the cookie's user is checked against the database, so a deleted user or a recreated database gets a clean 401 and the app shows "Your session has expired".
-- Login and setup are rate limited per client address (10 attempts a minute by default).
+- Login and setup are rate limited per client address (10 attempts a minute by default), every other API call at 300 a minute, and only two auto-assign runs happen at once (`Auth__LoginAttemptsPerMinute`, `RateLimits__RequestsPerMinute`, `RateLimits__HeavyConcurrency`).
 - Pages carry a `Content-Security-Policy` (no inline scripts, same-origin only); every response carries `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy`. Both containers run as non-root users.
 - The last admin account cannot be deleted, so the app never falls back into setup.
 - Login compares against a dummy hash when the email is unknown, so timing does not reveal which accounts exist. Passwords are 8 to 128 characters.
 - CSV cells that a spreadsheet would run as a formula (`=`, `+`, `-`, `@`) are prefixed with `'`.
 - Session keys live on the `judesk-keys` volume (unencrypted, like the database volume next to it), so sessions survive `docker compose up --build`.
+- Times are UTC throughout: a week runs from Monday 00:00 UTC, and a shift's hours count towards the week it starts in. Overlaps are checked across the week boundary.
+- Dates are accepted between 2000 and 2100.
 - Not included: HTTPS (terminate it in front of nginx), password reset, audit log.
 
 ## CI

@@ -29,6 +29,7 @@ if (builder.Configuration.GetValue("Demo:Mode", false))
     builder.Services.AddHostedService<DemoResetService>();
 }
 builder.Services.AddJuDeskAuth();
+builder.Services.AddExceptionHandler<DbConflictHandler>();
 builder.Services.AddProblemDetails();
 
 // Behind the nginx of docker-compose (or any reverse proxy) the client address and scheme come
@@ -55,8 +56,11 @@ builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>();
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
-// Brute-force protection on login: a small fixed window per client address.
+// Brute-force protection on login (a small fixed window per client address), a wider window on
+// everything else, and a few auto-assign runs at a time: one busy client cannot stall the rest.
 var loginAttemptsPerMinute = builder.Configuration.GetValue("Auth:LoginAttemptsPerMinute", 10);
+var requestsPerMinute = builder.Configuration.GetValue("RateLimits:RequestsPerMinute", 300);
+var heavyConcurrency = builder.Configuration.GetValue("RateLimits:HeavyConcurrency", 2);
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -64,6 +68,16 @@ builder.Services.AddRateLimiter(options =>
         RateLimitPartition.GetFixedWindowLimiter(
             http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new FixedWindowRateLimiterOptions { PermitLimit = loginAttemptsPerMinute, Window = TimeSpan.FromMinutes(1) }));
+    options.AddPolicy(RateLimits.ApiPolicy, http =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = requestsPerMinute, Window = TimeSpan.FromMinutes(1) }));
+    options.AddConcurrencyLimiter(RateLimits.HeavyPolicy, o =>
+    {
+        o.PermitLimit = heavyConcurrency;
+        o.QueueLimit = heavyConcurrency * 2;
+        o.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+    });
 });
 
 builder.Services.AddEndpointsApiExplorer();
@@ -104,9 +118,9 @@ if (builder.Configuration.GetValue("Swagger:Enabled", true))
     app.UseSwaggerUI(options => options.SwaggerEndpoint("/swagger/v1/swagger.json", "JuDesk API v1"));
 }
 
-app.MapHealthChecks("/health").AllowAnonymous();
+app.MapHealthChecks("/health").AllowAnonymous().RequireRateLimiting(RateLimits.ApiPolicy);
 
-var api = app.MapGroup("/api").RequireAuthorization();
+var api = app.MapGroup("/api").RequireAuthorization().RequireRateLimiting(RateLimits.ApiPolicy);
 api.MapSetup();
 api.MapAuth();
 api.MapCatalog();

@@ -22,6 +22,7 @@ public class DemoTests(ApiFixture fixture) : IAsyncLifetime
             b.UseSetting("Demo:Mode", "true");
             b.UseSetting("Demo:ResetMinutes", "60");
             b.UseSetting("Seed:Demo", "true");
+            b.UseSetting("Demo:MaxCatalogRows", "6"); // the seed has 5 skills
         });
         var client = _factory.CreateClient();
         (await client.GetAsync("/health")).EnsureSuccessStatusCode();
@@ -65,6 +66,19 @@ public class DemoTests(ApiFixture fixture) : IAsyncLifetime
         // The same account every time, so sessions and the reset do not pile up users.
         var again = await (await client.PostAsync("/api/auth/demo", null)).Content.ReadFromJsonAsync<UserDto>();
         Assert.Equal(user.Id, again!.Id);
+    }
+
+    [Fact]
+    public async Task Demo_tables_are_capped()
+    {
+        var client = _factory.CreateClient();
+        (await client.PostAsync("/api/auth/demo", null)).EnsureSuccessStatusCode();
+
+        await client.CreateSkillAsync("Sixth");
+        var seventh = await client.PostAsJsonAsync("/api/skills", new SkillRequest("Seventh"));
+
+        Assert.Equal(HttpStatusCode.Conflict, seventh.StatusCode);
+        Assert.Contains("at most 6", await seventh.Content.ReadAsStringAsync());
     }
 
     [Fact]

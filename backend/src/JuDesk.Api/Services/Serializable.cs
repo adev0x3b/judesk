@@ -1,7 +1,6 @@
 using System.Data;
 using JuDesk.Api.Data;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace JuDesk.Api.Services;
 
@@ -33,6 +32,5 @@ public static class Serializable
         }
     }
 
-    private static bool IsSerializationFailure(Exception e) =>
-        (e as PostgresException ?? e.InnerException as PostgresException)?.SqlState is PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected;
+    private static bool IsSerializationFailure(Exception e) => DbErrors.IsSerializationFailure(e);
 }

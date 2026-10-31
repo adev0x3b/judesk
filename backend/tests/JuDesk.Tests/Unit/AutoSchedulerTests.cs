@@ -111,6 +111,34 @@ public class AutoSchedulerTests
     }
 
     [Fact]
+    public void Surrounding_shifts_block_overlaps_across_the_week_boundary()
+    {
+        var tech = Tech("Giulia", skills: Electrical);
+        var sundayNight = ShiftAt(-1, 22, 8, Electrical).Assigned(tech); // ends Monday 06:00
+        var mondayEarly = ShiftAt(0, 0, 8, Electrical);
+
+        var blind = AutoScheduler.Plan([mondayEarly], [tech]);
+        Assert.Single(blind.Assignments);
+
+        var aware = AutoScheduler.Plan([mondayEarly], [tech], [sundayNight]);
+        Assert.Empty(aware.Assignments);
+        Assert.Contains("overlapping", Assert.Single(aware.Unfilled).Reason);
+    }
+
+    [Fact]
+    public void Ties_between_technicians_with_the_same_name_are_broken_by_id()
+    {
+        var a = Tech("Same Name", skills: Electrical);
+        var b = Tech("Same Name", skills: Electrical);
+        var shift = ShiftAt(0, 8, 8, Electrical);
+
+        var first = AutoScheduler.Plan([shift], [a, b]);
+        var second = AutoScheduler.Plan([shift], [b, a]);
+
+        Assert.Equal(first.Assignments.Single().TechnicianId, second.Assignments.Single().TechnicianId);
+    }
+
+    [Fact]
     public void Empty_inputs_give_an_empty_plan()
     {
         Assert.Equal(SchedulePlan.Empty, AutoScheduler.Plan([], [Tech("A")]));

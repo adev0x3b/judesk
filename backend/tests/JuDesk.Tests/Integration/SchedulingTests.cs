@@ -116,6 +116,45 @@ public class SchedulingTests(ApiFixture fixture)
     }
 
     [Fact]
+    public async Task Overlap_is_detected_across_the_week_boundary()
+    {
+        var client = await fixture.AdminClientAsync();
+        var monday = FreshMonday();
+        var skill = await client.CreateSkillAsync();
+        var site = await client.CreateSiteAsync();
+        var tech = await client.CreateTechnicianAsync("Night Owl", 40, true, skill.Id);
+        var sundayNight = await client.CreateShiftAsync(site.Id, skill.Id, monday.AddHours(-2), 8); // Sun 22:00 - Mon 06:00
+        var mondayEarly = await client.CreateShiftAsync(site.Id, skill.Id, monday, 8);              // Mon 00:00 - 08:00
+        (await client.AssignAsync(sundayNight.Id, tech.Id)).EnsureSuccessStatusCode();
+
+        var response = await client.AssignAsync(mondayEarly.Id, tech.Id);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("Overlap", await response.Content.ReadAsStringAsync());
+
+        var candidates = await client.GetFromJsonAsync<List<CandidateDto>>($"/api/shifts/{mondayEarly.Id}/candidates");
+        Assert.False(candidates!.Single(c => c.TechnicianId == tech.Id).Eligible);
+
+        var plan = await (await client.PostAsJsonAsync("/api/schedule/auto-assign", new AutoAssignRequest(DateOnly.FromDateTime(monday), true)))
+            .Content.ReadFromJsonAsync<AutoAssignResultDto>();
+        Assert.DoesNotContain(plan!.Assignments, p => p.ShiftId == mondayEarly.Id);
+    }
+
+    [Fact]
+    public async Task Dates_outside_the_supported_window_are_rejected_not_500()
+    {
+        var client = await fixture.AdminClientAsync();
+        var skill = await client.CreateSkillAsync();
+        var site = await client.CreateSiteAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/schedule/week?weekStart=9999-12-31")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/shifts?from=9999-12-31")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/schedule/export?weekStart=1999-12-31")).StatusCode);
+        var far = new DateTime(9999, 12, 31, 8, 0, 0, DateTimeKind.Utc);
+        var create = await client.PostAsJsonAsync("/api/shifts", new ShiftRequest(site.Id, far, far.AddHours(4), skill.Id, 1, null));
+        Assert.Equal(HttpStatusCode.BadRequest, create.StatusCode);
+    }
+
+    [Fact]
     public async Task Unassign_frees_the_slot()
     {
         var client = await fixture.AdminClientAsync();

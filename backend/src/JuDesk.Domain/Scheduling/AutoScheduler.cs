@@ -20,8 +20,15 @@ public sealed record SchedulePlan(IReadOnlyList<ProposedAssignment> Assignments,
 /// </summary>
 public static class AutoScheduler
 {
-    public static SchedulePlan Plan(IReadOnlyCollection<Shift> weekShifts, IReadOnlyCollection<Technician> technicians)
+    /// <param name="weekShifts">The shifts of the week being planned, with their assignments.</param>
+    /// <param name="technicians">The technicians to plan with, with their skills.</param>
+    /// <param name="surroundingShifts">
+    /// Assigned shifts just outside the week (the day before and after). They are never planned,
+    /// but a shift crossing midnight on Sunday or Monday must not be double-booked.
+    /// </param>
+    public static SchedulePlan Plan(IReadOnlyCollection<Shift> weekShifts, IReadOnlyCollection<Technician> technicians, IReadOnlyCollection<Shift>? surroundingShifts = null)
     {
+        surroundingShifts ??= [];
         if (weekShifts.Count == 0 || technicians.Count == 0)
         {
             return weekShifts.Count == 0
@@ -33,10 +40,10 @@ public static class AutoScheduler
         }
 
         // Working copies so we never mutate the caller's graph while planning.
-        var shiftsById = weekShifts.ToDictionary(s => s.Id);
+        var shiftsById = weekShifts.Concat(surroundingShifts).DistinctBy(s => s.Id).ToDictionary(s => s.Id);
         var assignedShiftIds = technicians.ToDictionary(
             t => t.Id,
-            t => weekShifts.Where(s => s.Assignments.Any(a => a.TechnicianId == t.Id)).Select(s => s.Id).ToHashSet());
+            t => shiftsById.Values.Where(s => s.Assignments.Any(a => a.TechnicianId == t.Id)).Select(s => s.Id).ToHashSet());
         var currentCount = weekShifts.ToDictionary(s => s.Id, s => s.Assignments.Count);
 
         var proposals = new List<ProposedAssignment>();
@@ -49,7 +56,7 @@ public static class AutoScheduler
                 currentCount[s.Id],
                 assignedShiftIds[t.Id].Contains(s.Id));
 
-        double HoursOf(Technician t) => assignedShiftIds[t.Id].Sum(id => shiftsById[id].Hours);
+        double HoursOf(Technician t, IsoWeek week) => assignedShiftIds[t.Id].Select(id => shiftsById[id]).Where(s => week.Contains(s.StartsAt)).Sum(s => s.Hours);
 
         var open = weekShifts
             .Where(s => s.Assignments.Count < s.Headcount)
@@ -68,12 +75,14 @@ public static class AutoScheduler
         {
             while (currentCount[shift.Id] < shift.Headcount)
             {
+                var week = IsoWeek.Containing(shift.StartsAt);
                 var pick = technicians
                     .Select(t => new { Technician = t, Violations = CheckFor(t, shift) })
                     .Where(x => x.Violations.Count == 0)
-                    .OrderBy(x => HoursOf(x.Technician))
+                    .OrderBy(x => HoursOf(x.Technician, week))
                     .ThenBy(x => assignedShiftIds[x.Technician.Id].Count)
                     .ThenBy(x => x.Technician.FullName, StringComparer.Ordinal)
+                    .ThenBy(x => x.Technician.Id)
                     .Select(x => x.Technician)
                     .FirstOrDefault();
 

@@ -14,12 +14,17 @@ public sealed class DemoOptions
     public bool Mode { get; set; }
 
     public int ResetMinutes { get; set; } = 60;
+
+    /// <summary>Rows a demo visitor may create per catalog table (technicians, sites, skills).</summary>
+    public int MaxCatalogRows { get; set; } = 300;
+
+    /// <summary>Shifts a demo may hold in total.</summary>
+    public int MaxShifts { get; set; } = 3000;
 }
 
 /// <summary>What the demo timer last did and will do next; one per process.</summary>
 public sealed class DemoState
 {
-    public DateTime? LastResetAt { get; set; }
     public DateTime? NextResetAt { get; set; }
 }
 
@@ -33,8 +38,24 @@ public sealed class DemoService(AppDbContext db, IPasswordHasher<User> hasher, I
     public const string DemoEmail = "demo@judesk.local";
 
     public bool Enabled => options.Value.Mode;
-    public int ResetMinutes => options.Value.ResetMinutes;
+    public int ResetMinutes => Math.Max(1, options.Value.ResetMinutes);
     public DateTime? NextResetAt => state.NextResetAt;
+
+    /// <summary>
+    /// In demo mode a table may not grow past its cap: a visitor scripting thousands of inserts
+    /// would otherwise slow the demo down for everyone until the next reset. Null when fine.
+    /// </summary>
+    public async Task<IResult?> CapAsync<T>(IQueryable<T> table, bool catalog, string what, CancellationToken ct)
+    {
+        if (!Enabled)
+        {
+            return null;
+        }
+        var max = catalog ? options.Value.MaxCatalogRows : options.Value.MaxShifts;
+        return await table.CountAsync(ct) >= max
+            ? Results.Problem(statusCode: StatusCodes.Status409Conflict, title: $"The demo keeps at most {max} {what}; it resets every {ResetMinutes} minutes.")
+            : null;
+    }
 
     /// <summary>The shared demo planner, created on first use. Null when the demo is off.</summary>
     public async Task<User?> SignInUserAsync(CancellationToken ct = default)
@@ -44,28 +65,41 @@ public sealed class DemoService(AppDbContext db, IPasswordHasher<User> hasher, I
             return null;
         }
         var user = await db.Users.FirstOrDefaultAsync(u => u.Email == DemoEmail, ct);
-        if (user is null)
+        if (user is not null)
         {
-            user = new User { Email = DemoEmail, DisplayName = "Demo planner", Role = UserRole.Planner, PasswordHash = string.Empty };
-            user.PasswordHash = hasher.HashPassword(user, Guid.NewGuid().ToString("N"));
-            db.Users.Add(user);
-            await db.SaveChangesAsync(ct);
+            return user;
         }
-        return user;
+        user = new User { Email = DemoEmail, DisplayName = "Demo planner", Role = UserRole.Planner, PasswordHash = string.Empty };
+        user.PasswordHash = hasher.HashPassword(user, Guid.NewGuid().ToString("N"));
+        db.Users.Add(user);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return user;
+        }
+        catch (DbUpdateException e) when (DbErrors.IsUniqueViolation(e))
+        {
+            // Two first visitors clicked at the same moment; the other insert won.
+            db.ChangeTracker.Clear();
+            return await db.Users.FirstAsync(u => u.Email == DemoEmail, ct);
+        }
     }
 
     /// <summary>Drops every technician, site, skill, shift and assignment and seeds the demo fleet again.</summary>
     public async Task ResetAsync(CancellationToken ct = default)
     {
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        await db.Assignments.ExecuteDeleteAsync(ct);
-        await db.Shifts.ExecuteDeleteAsync(ct);
-        await db.Technicians.ExecuteDeleteAsync(ct);
-        await db.Sites.ExecuteDeleteAsync(ct);
-        await db.Skills.ExecuteDeleteAsync(ct);
-        await DemoSeeder.SeedAsync(db, new SeedOptions { Demo = true }, logger, ct);
-        await tx.CommitAsync(ct);
-        state.LastResetAt = DateTime.UtcNow;
+        // Serializable, so a visitor's write that races the reset is retried or rejected instead
+        // of leaving the seed half applied.
+        await Serializable.RunAsync(db, async () =>
+        {
+            await db.Assignments.ExecuteDeleteAsync(ct);
+            await db.Shifts.ExecuteDeleteAsync(ct);
+            await db.Technicians.ExecuteDeleteAsync(ct);
+            await db.Sites.ExecuteDeleteAsync(ct);
+            await db.Skills.ExecuteDeleteAsync(ct);
+            await DemoSeeder.SeedAsync(db, new SeedOptions { Demo = true }, logger, ct, force: true);
+            return true;
+        }, ct);
         logger.LogInformation("Demo data reset");
     }
 }
