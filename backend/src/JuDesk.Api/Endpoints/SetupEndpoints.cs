@@ -24,7 +24,8 @@ public static class SetupEndpoints
                 .Require("email", email)
                 .Must("email", email.Contains('@'), "Must be an email address.")
                 .Require("displayName", request.DisplayName, 120)
-                .Must("password", request.Password?.Length >= 8, "Must be at least 8 characters.");
+                .Must("password", request.Password?.Length >= 8, "Must be at least 8 characters.")
+                .Must("password", request.Password?.Length <= AuthEndpoints.MaxPasswordLength, $"Must be at most {AuthEndpoints.MaxPasswordLength} characters.");
             if (v.Problem() is { } problem)
             {
                 return problem;
@@ -35,9 +36,13 @@ public static class SetupEndpoints
             {
                 return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Setup is already complete.");
             }
+            if (result == SetupResult.NoCode)
+            {
+                return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "No setup code is active. Restart the API or run scripts/regen-setup-code.sh for a new one.");
+            }
             if (result == SetupResult.WrongCode || admin is null)
             {
-                return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Wrong setup code. Check the API log or run scripts/regen-setup-code.sh.");
+                return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Wrong setup code. Check the API log; the code is burnt after too many wrong guesses.");
             }
 
             await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, admin.ToPrincipal());

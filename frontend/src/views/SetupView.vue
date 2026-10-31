@@ -49,7 +49,8 @@ async function submit() {
       <h2>Create the admin account</h2>
       <p class="muted intro">
         This app has no accounts yet. The API printed a one-time setup code when it started (look at
-        <code>docker compose logs api</code>). Enter it with the details of the first admin.
+        <code>docker compose logs api</code>). Enter it with the details of the first admin. The code changes on every restart and
+        burns after a few wrong guesses.
       </p>
 
       <div class="field">

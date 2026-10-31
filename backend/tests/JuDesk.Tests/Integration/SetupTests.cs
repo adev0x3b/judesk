@@ -1,9 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
 using JuDesk.Api.Contracts;
+using JuDesk.Api.Data;
 using JuDesk.Api.Services;
 using JuDesk.Domain.Entities;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace JuDesk.Tests.Integration;
@@ -34,7 +36,7 @@ public class SetupTests(ApiFixture fixture) : IAsyncLifetime
         var status = await client.GetFromJsonAsync<SetupStatusDto>("/api/setup/status");
         Assert.True(status!.NeedsSetup);
 
-        var code = await ApiFixture.CurrentSetupCodeAsync(_factory);
+        var code = await ApiFixture.IssueSetupCodeAsync(_factory);
         Assert.Matches("^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$", code);
 
         var login = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest("admin@judesk.local", "ChangeMe123!"));
@@ -55,10 +57,46 @@ public class SetupTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Too_many_wrong_guesses_burn_the_code_until_a_new_one_is_issued()
+    {
+        var client = _factory.CreateClient();
+        var code = await ApiFixture.IssueSetupCodeAsync(_factory);
+
+        for (var i = 0; i < SetupCode.MaxFailedAttempts; i++)
+        {
+            var guess = await client.PostAsJsonAsync("/api/setup", new SetupRequest("ZZZZ-ZZZZ-ZZZZ", "boss@test.local", "Boss", "Boss-Pass-1"));
+            Assert.Equal(HttpStatusCode.Forbidden, guess.StatusCode);
+        }
+
+        // The right code no longer works either: the row is gone, not just locked.
+        var burnt = await client.PostAsJsonAsync("/api/setup", new SetupRequest(code, "boss@test.local", "Boss", "Boss-Pass-1"));
+        Assert.Equal(HttpStatusCode.Forbidden, burnt.StatusCode);
+        Assert.Contains("No setup code", await burnt.Content.ReadAsStringAsync());
+        Assert.True((await client.GetFromJsonAsync<SetupStatusDto>("/api/setup/status"))!.NeedsSetup);
+
+        var fresh = await ApiFixture.IssueSetupCodeAsync(_factory);
+        var ok = await client.PostAsJsonAsync("/api/setup", new SetupRequest(fresh!, "boss@test.local", "Boss", "Boss-Pass-1"));
+        Assert.Equal(HttpStatusCode.Created, ok.StatusCode);
+    }
+
+    [Fact]
+    public async Task Only_the_hash_of_the_code_is_stored()
+    {
+        var code = await ApiFixture.IssueSetupCodeAsync(_factory);
+
+        using var scope = _factory.Services.CreateScope();
+        var row = await scope.ServiceProvider.GetRequiredService<AppDbContext>().SetupCodes.SingleAsync();
+
+        Assert.DoesNotContain(code!.Replace("-", ""), row.CodeHash);
+        Assert.Equal(64, row.CodeHash.Length);
+        Assert.Equal(0, row.FailedAttempts);
+    }
+
+    [Fact]
     public async Task Regenerating_retires_the_old_code()
     {
         var client = _factory.CreateClient();
-        var old = await ApiFixture.CurrentSetupCodeAsync(_factory);
+        var old = await ApiFixture.IssueSetupCodeAsync(_factory);
 
         string fresh;
         using (var scope = _factory.Services.CreateScope())
@@ -78,7 +116,7 @@ public class SetupTests(ApiFixture fixture) : IAsyncLifetime
     public async Task Right_code_creates_the_admin_signs_in_and_closes_setup()
     {
         var client = _factory.CreateClient();
-        var code = await ApiFixture.CurrentSetupCodeAsync(_factory);
+        var code = await ApiFixture.IssueSetupCodeAsync(_factory);
 
         var response = await client.PostAsJsonAsync("/api/setup", new SetupRequest(code, "Boss@Test.local", "Boss", "Boss-Pass-1"));
 
@@ -90,7 +128,7 @@ public class SetupTests(ApiFixture fixture) : IAsyncLifetime
         // Signed in by the setup call itself.
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/technicians")).StatusCode);
         Assert.False((await client.GetFromJsonAsync<SetupStatusDto>("/api/setup/status"))!.NeedsSetup);
-        Assert.Null(await ApiFixture.CurrentSetupCodeAsync(_factory));
+        Assert.Null(await ApiFixture.IssueSetupCodeAsync(_factory));
 
         // A second setup, even with the right code, is refused: there is only ever one first admin.
         var again = await client.PostAsJsonAsync("/api/setup", new SetupRequest(code, "other@test.local", "Other", "Other-Pass-1"));
@@ -105,7 +143,7 @@ public class SetupTests(ApiFixture fixture) : IAsyncLifetime
     public async Task Setup_request_is_validated()
     {
         var client = _factory.CreateClient();
-        var code = await ApiFixture.CurrentSetupCodeAsync(_factory);
+        var code = await ApiFixture.IssueSetupCodeAsync(_factory);
 
         var response = await client.PostAsJsonAsync("/api/setup", new SetupRequest(code, "not-an-email", "", "short"));
 

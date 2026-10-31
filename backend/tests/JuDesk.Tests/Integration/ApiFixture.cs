@@ -46,20 +46,21 @@ public sealed class ApiFixture : IAsyncLifetime
             builder.UseSetting("Auth:LoginAttemptsPerMinute", "100000");
         });
 
-    /// <summary>Reads the current setup code the way the log banner shows it, and creates the admin with it.</summary>
+    /// <summary>Issues a setup code the way a restart or the regen script does, and creates the admin with it.</summary>
     public static async Task CompleteSetupAsync(WebApplicationFactory<Program> factory, string email, string password)
     {
         using var client = factory.CreateClient();
         (await client.GetAsync("/health")).EnsureSuccessStatusCode(); // migrations + code issued at startup
-        var code = await CurrentSetupCodeAsync(factory) ?? throw new InvalidOperationException("No setup code was issued.");
+        var code = await IssueSetupCodeAsync(factory) ?? throw new InvalidOperationException("No setup code was issued.");
         var response = await client.PostAsJsonAsync("/api/setup", new SetupRequest(code, email, "Admin", password));
         response.EnsureSuccessStatusCode();
     }
 
-    public static async Task<string?> CurrentSetupCodeAsync(WebApplicationFactory<Program> factory)
+    /// <summary>A fresh code (the old one stops working), or null once setup is complete.</summary>
+    public static async Task<string?> IssueSetupCodeAsync(WebApplicationFactory<Program> factory)
     {
         using var scope = factory.Services.CreateScope();
-        return await scope.ServiceProvider.GetRequiredService<SetupService>().EnsureCodeAsync();
+        return await scope.ServiceProvider.GetRequiredService<SetupService>().IssueCodeIfNeededAsync();
     }
 
     public async Task DisposeAsync()
