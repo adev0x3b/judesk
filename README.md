@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/adev0x3b/judesk/actions/workflows/ci.yml/badge.svg)](https://github.com/adev0x3b/judesk/actions/workflows/ci.yml)
 
+**Live demo:** <https://desk.juume.site>, click "Try the demo". The data resets every hour.
+
 Shift scheduling for field technicians. Keep a roster of technicians with skills and a weekly hours limit, define shifts per site, and fill the week by dragging people onto shifts or letting the auto-scheduler do it. Every assignment is checked against the same rules: required skill, no overlapping shifts, weekly hours, headcount.
 
 ![Week view: technician panel on the left, one card per shift, auto-assigned slots marked A](docs/screenshots/schedule-filled.png)
@@ -25,6 +27,8 @@ Shift scheduling for field technicians. Keep a roster of technicians with skills
 | Technicians and skills | First-run setup |
 | --- | --- |
 | ![](docs/screenshots/technicians.png) | ![](docs/screenshots/setup.png) |
+| Public demo banner | Login with "Try the demo" |
+| ![](docs/screenshots/demo.png) | ![](docs/screenshots/login.png) |
 
 ## Quick start
 
@@ -64,6 +68,13 @@ Copy [`.env.example`](.env.example) to `.env` to change the defaults.
 | `WEB_BIND` | `127.0.0.1` | Address the port is published on. `0.0.0.0` opens it to the network. |
 | `DB_PASSWORD` | `judesk` | PostgreSQL password. |
 | `SEED_DEMO` | `true` | Seed the demo fleet on an empty database. |
+| `DEMO_MODE` | `false` | Public demo: "Try the demo" on the login page and a data reset on a timer. |
+| `DEMO_RESET_MINUTES` | `60` | How often the demo fleet is put back to the seed. |
+| `PROXY_FORWARD_LIMIT` | `1` | Proxies in front of nginx; `2` behind a tunnel or CDN that adds the client address. |
+
+### Public demo
+
+`DEMO_MODE=true` adds a "Try the demo" button to the login page. It signs the visitor in as one shared planner account (random password, never shown), a banner says when the next reset is, and every `DEMO_RESET_MINUTES` the technicians, sites, skills, shifts and assignments go back to the sample fleet. Accounts are kept, so the admin created at setup can still sign in with a password. Behind Cloudflare Tunnel set `PROXY_FORWARD_LIMIT=2` so the login limit counts visitors, not the tunnel.
 
 The API itself is configured through [`appsettings.json`](backend/src/JuDesk.Api/appsettings.json) and the usual ASP.NET Core environment variables (`ConnectionStrings__Default`, `Seed__Demo`, `Auth__LoginAttemptsPerMinute`).
 

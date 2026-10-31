@@ -9,6 +9,12 @@ export interface SetupStatus {
   needsSetup: boolean
 }
 
+export interface DemoStatus {
+  enabled: boolean
+  resetMinutes: number
+  nextResetAt: string | null
+}
+
 export interface SetupRequest {
   code: string
   email: string

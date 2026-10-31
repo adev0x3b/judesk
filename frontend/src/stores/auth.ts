@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { authApi, setupApi } from '@/api'
+import { authApi, demoApi, setupApi } from '@/api'
 import { ApiError, setUnauthorizedHandler } from '@/api/client'
-import type { User } from '@/api/types'
+import type { DemoStatus, User } from '@/api/types'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
@@ -11,6 +11,8 @@ export const useAuthStore = defineStore('auth', () => {
   const needsSetup = ref(false)
   /** Set when the API rejected a session the app believed was valid (expired, or the user was deleted). */
   const expired = ref(false)
+  /** Public demo: a passwordless planner login and a data reset on a timer. */
+  const demo = ref<DemoStatus>({ enabled: false, resetMinutes: 0, nextResetAt: null })
 
   const isAuthenticated = computed(() => user.value !== null)
   const isAdmin = computed(() => user.value?.role === 'Admin')
@@ -19,7 +21,9 @@ export const useAuthStore = defineStore('auth', () => {
   async function restore() {
     if (checked.value) return
     try {
-      needsSetup.value = (await setupApi.status()).needsSetup
+      const [setup, demoStatus] = await Promise.all([setupApi.status(), demoApi.status()])
+      demo.value = demoStatus
+      needsSetup.value = setup.needsSetup
       if (needsSetup.value) {
         user.value = null
         return
@@ -46,6 +50,12 @@ export const useAuthStore = defineStore('auth', () => {
     expired.value = false
   }
 
+  async function loginDemo() {
+    user.value = await authApi.loginDemo()
+    checked.value = true
+    expired.value = false
+  }
+
   async function logout() {
     try {
       await authApi.logout()
@@ -59,5 +69,5 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
   })
 
-  return { user, checked, expired, needsSetup, isAuthenticated, isAdmin, restore, completedSetup, login, logout }
+  return { user, checked, expired, needsSetup, demo, isAuthenticated, isAdmin, restore, completedSetup, login, loginDemo, logout }
 })

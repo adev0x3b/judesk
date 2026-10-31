@@ -1,9 +1,15 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
+
+const nextReset = computed(() => {
+  const at = auth.demo.nextResetAt
+  return at ? new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null
+})
 
 async function logout() {
   await auth.logout()
@@ -30,6 +36,11 @@ async function logout() {
         <button class="btn btn-ghost btn-sm" @click="logout">Sign out</button>
       </div>
     </header>
+    <p v-if="auth.demo.enabled" class="demo-banner" role="status">
+      Public demo: anything you change is thrown away every
+      {{ auth.demo.resetMinutes === 60 ? 'hour' : `${auth.demo.resetMinutes} minutes`
+      }}<template v-if="nextReset"> (next reset at {{ nextReset }})</template>.
+    </p>
     <main class="content">
       <slot />
     </main>
@@ -105,6 +116,16 @@ async function logout() {
   gap: 10px;
 }
 
+.demo-banner {
+  margin: 0;
+  padding: 6px 20px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 13px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+
 .content {
   flex: 1;
   min-height: 0;
@@ -112,8 +133,21 @@ async function logout() {
 
 @media (max-width: 720px) {
   .topbar {
-    gap: 12px;
-    padding: 0 12px;
+    height: auto;
+    min-height: var(--topbar-h);
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding: 8px 12px;
+  }
+
+  .nav {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .demo-banner {
+    padding: 6px 12px;
   }
 
   .user .muted {

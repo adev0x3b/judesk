@@ -4,6 +4,7 @@ import type {
   AutoAssignResult,
   Candidate,
   CreateUserRequest,
+  DemoStatus,
   SetupRequest,
   SetupStatus,
   Shift,
@@ -22,8 +23,13 @@ export const setupApi = {
   complete: (request: SetupRequest) => http.post<User>('/api/setup', request),
 }
 
+export const demoApi = {
+  status: () => http.get<DemoStatus>('/api/demo'),
+}
+
 export const authApi = {
   login: (email: string, password: string) => http.post<User>('/api/auth/login', { email, password }),
+  loginDemo: () => http.post<User>('/api/auth/demo'),
   logout: () => http.post<void>('/api/auth/logout'),
   me: () => http.get<User>('/api/auth/me'),
 }

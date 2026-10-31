@@ -27,7 +27,8 @@ public sealed class SetupService(AppDbContext db, IPasswordHasher<User> hasher, 
 {
     private const string Alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O, 1/I
 
-    public async Task<bool> NeedsSetupAsync(CancellationToken ct = default) => !await db.Users.AnyAsync(ct);
+    /// <summary>Setup is pending until an admin exists; a demo planner alone does not count.</summary>
+    public async Task<bool> NeedsSetupAsync(CancellationToken ct = default) => !await db.Users.AnyAsync(u => u.Role == UserRole.Admin, ct);
 
     /// <summary>Issues a fresh code if the app still needs setup; null once setup is done.</summary>
     public async Task<string?> IssueCodeIfNeededAsync(CancellationToken ct = default) =>

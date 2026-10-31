@@ -16,6 +16,11 @@ public static class SetupEndpoints
             new SetupStatusDto(await setup.NeedsSetupAsync(ct)))
             .Produces<SetupStatusDto>();
 
+        api.MapGet("/demo", (DemoService demo) => new DemoStatusDto(demo.Enabled, demo.ResetMinutes, demo.NextResetAt))
+            .WithTags("Setup")
+            .AllowAnonymous()
+            .Produces<DemoStatusDto>();
+
         group.MapPost("/", async (SetupRequest request, SetupService setup, HttpContext http, CancellationToken ct) =>
         {
             var email = request.Email?.Trim().ToLowerInvariant() ?? string.Empty;

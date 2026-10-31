@@ -28,6 +28,27 @@ public static class AuthEndpoints
         .Produces<UserDto>()
         .ProducesProblem(StatusCodes.Status401Unauthorized);
 
+        // Public demo: one shared planner account, no password to type. 404 unless Demo:Mode is on.
+        group.MapPost("/demo", async (DemoService demo, SetupService setup, HttpContext http, CancellationToken ct) =>
+        {
+            if (!demo.Enabled)
+            {
+                return Results.NotFound();
+            }
+            if (await setup.NeedsSetupAsync(ct))
+            {
+                return Results.Conflict(new { title = "Create the admin account on /setup first." });
+            }
+            var user = await demo.SignInUserAsync(ct) ?? throw new InvalidOperationException("Demo is enabled but no demo user came back.");
+            await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, user.ToPrincipal());
+            return Results.Ok(user.ToDto());
+        })
+        .AllowAnonymous()
+        .RequireRateLimiting(LoginRateLimitPolicy)
+        .Produces<UserDto>()
+        .Produces(StatusCodes.Status404NotFound)
+        .Produces(StatusCodes.Status409Conflict);
+
         group.MapPost("/logout", async (HttpContext http) =>
         {
             await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);

@@ -234,4 +234,18 @@ const hasAuto = computed(() => schedule.week?.shifts.some((s) => s.assignments.s
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 720px) {
+  .toolbar .row {
+    flex-wrap: wrap;
+  }
+
+  .range {
+    font-size: 18px;
+  }
+
+  .chip {
+    white-space: nowrap;
+  }
+}
 </style>

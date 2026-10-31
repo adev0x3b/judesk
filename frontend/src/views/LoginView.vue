@@ -14,6 +14,20 @@ const error = ref<string | null>(null)
 const busy = ref(false)
 const expired = route.query.expired === '1'
 
+async function tryDemo() {
+  error.value = null
+  busy.value = true
+  try {
+    await auth.loginDemo()
+    await router.push('/')
+  } catch (e) {
+    error.value =
+      e instanceof ApiError ? (e.status === 429 ? 'Too many attempts, wait a minute.' : e.title) : 'Could not reach the server.'
+  } finally {
+    busy.value = false
+  }
+}
+
 async function submit() {
   error.value = null
   busy.value = true
@@ -55,6 +69,15 @@ async function submit() {
       <button class="btn btn-primary submit" type="submit" :disabled="busy">
         {{ busy ? 'Signing in…' : 'Sign in' }}
       </button>
+
+      <div v-if="auth.demo.enabled" class="demo">
+        <div class="divider"><span>or</span></div>
+        <button class="btn submit" type="button" :disabled="busy" @click="tryDemo">Try the demo</button>
+        <p class="muted demo-hint">
+          Signs you in as a planner with a sample fleet. Everything resets every
+          {{ auth.demo.resetMinutes === 60 ? 'hour' : `${auth.demo.resetMinutes} minutes` }}.
+        </p>
+      </div>
     </form>
   </div>
 </template>
@@ -112,5 +135,34 @@ async function submit() {
   width: 100%;
   justify-content: center;
   margin-top: 6px;
+}
+
+.demo {
+  margin-top: 18px;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: var(--text-3);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.demo-hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  text-align: center;
 }
 </style>

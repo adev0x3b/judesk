@@ -21,17 +21,26 @@ builder.Services.Configure<SeedOptions>(builder.Configuration.GetSection(SeedOpt
 builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<ScheduleService>();
 builder.Services.AddScoped<SetupService>();
+builder.Services.Configure<DemoOptions>(builder.Configuration.GetSection(DemoOptions.Section));
+builder.Services.AddSingleton<DemoState>();
+builder.Services.AddScoped<DemoService>();
+if (builder.Configuration.GetValue("Demo:Mode", false))
+{
+    builder.Services.AddHostedService<DemoResetService>();
+}
 builder.Services.AddJuDeskAuth();
 builder.Services.AddProblemDetails();
 
 // Behind the nginx of docker-compose (or any reverse proxy) the client address and scheme come
 // from X-Forwarded-* headers. Only trust them when configured, because a spoofed header would
-// otherwise defeat the per-address login limit.
+// otherwise defeat the per-address login limit. ForwardLimit is how many proxies sit in front:
+// 1 for nginx alone, 2 when a tunnel or CDN in front of nginx adds the real client address.
 var trustProxy = builder.Configuration.GetValue("Proxy:TrustForwardedHeaders", false);
+var forwardLimit = builder.Configuration.GetValue("Proxy:ForwardLimit", 1);
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    options.ForwardLimit = 1;
+    options.ForwardLimit = Math.Max(1, forwardLimit);
     options.KnownNetworks.Clear();
     options.KnownProxies.Clear();
 });

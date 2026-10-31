@@ -24,6 +24,9 @@ services:
       Seed__Demo: ${SEED_DEMO:-true}
       # nginx is the only thing that can reach the api container, so its X-Forwarded-* headers are trusted.
       Proxy__TrustForwardedHeaders: "true"
+      Proxy__ForwardLimit: ${PROXY_FORWARD_LIMIT:-1}
+      Demo__Mode: ${DEMO_MODE:-false}
+      Demo__ResetMinutes: ${DEMO_RESET_MINUTES:-60}
       DataProtection__KeysPath: /keys
     volumes:
       - judesk-keys:/keys

@@ -7,6 +7,9 @@ namespace JuDesk.Api.Contracts;
 public sealed record SetupStatusDto(bool NeedsSetup);
 public sealed record SetupRequest(string? Code, string? Email, string? DisplayName, string? Password);
 
+// Demo
+public sealed record DemoStatusDto(bool Enabled, int ResetMinutes, DateTime? NextResetAt);
+
 // Auth
 public sealed record LoginRequest(string Email, string Password);
 public sealed record UserDto(Guid Id, string Email, string DisplayName, UserRole Role);
