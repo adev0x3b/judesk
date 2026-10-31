@@ -18,7 +18,7 @@ Shift scheduling for field technicians. Keep a roster of technicians with skills
 - **CSV export** of the week, one row per slot, unfilled slots included.
 - **Technicians, skills, sites and users** management. Admins create planner and admin accounts.
 - **First-run setup** with a one-time code instead of a default password.
-- **Dark mode**, following the system setting.
+- **Dark mode**: follows the system setting, or pick light or dark from the top bar.
 
 | Shift details with candidates and violations | Auto-assign preview |
 | --- | --- |

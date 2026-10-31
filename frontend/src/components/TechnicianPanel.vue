@@ -172,4 +172,11 @@ function onDragStart(event: DragEvent, t: TechnicianLoad) {
   flex-wrap: wrap;
   gap: 4px;
 }
+
+@media (max-width: 1000px) {
+  .panel {
+    position: static;
+    max-height: none;
+  }
+}
 </style>

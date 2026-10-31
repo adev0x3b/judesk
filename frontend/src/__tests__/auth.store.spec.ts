@@ -68,6 +68,27 @@ describe('auth store', () => {
     expect(store.checked).toBe(true)
   })
 
+  it('reports the server as down when the status call fails, and tries again on the next restore', async () => {
+    const { setupApi, authApi } = await import('@/api')
+    vi.mocked(setupApi.status).mockRejectedValueOnce(new ApiError(502, null))
+    vi.mocked(authApi.me).mockClear()
+    const store = useAuthStore()
+
+    await store.restore()
+
+    expect(store.serverDown).toBe(true)
+    expect(store.checked).toBe(false)
+    expect(authApi.me).not.toHaveBeenCalled()
+
+    vi.mocked(setupApi.status).mockResolvedValueOnce({ needsSetup: false })
+    vi.mocked(authApi.me).mockResolvedValueOnce(admin)
+    await store.restore()
+
+    expect(store.serverDown).toBe(false)
+    expect(store.checked).toBe(true)
+    expect(store.user).toEqual(admin)
+  })
+
   it('opens the app after setup completes', () => {
     const store = useAuthStore()
     store.needsSetup = true
@@ -94,5 +115,21 @@ describe('auth store', () => {
     await store.loginDemo()
     expect(store.user).toEqual(planner)
     expect(store.isAdmin).toBe(false)
+  })
+})
+
+describe('auth store session end', () => {
+  it('drops the toasts of the old session on logout', async () => {
+    setActivePinia(createPinia())
+    const { authApi, demoApi } = await import('@/api')
+    vi.mocked(demoApi.status).mockResolvedValue(demoOff)
+    vi.mocked(authApi.logout).mockResolvedValue()
+    const { useToastStore } = await import('@/stores/toast')
+    const toast = useToastStore()
+    toast.success('Shift created')
+    expect(toast.toasts).toHaveLength(1)
+
+    await useAuthStore().logout()
+    expect(toast.toasts).toHaveLength(0)
   })
 })

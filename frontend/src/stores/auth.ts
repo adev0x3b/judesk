@@ -3,6 +3,8 @@ import { ref, computed } from 'vue'
 import { authApi, demoApi, setupApi } from '@/api'
 import { ApiError, setUnauthorizedHandler } from '@/api/client'
 import type { DemoStatus, User } from '@/api/types'
+import { useScheduleStore } from '@/stores/schedule'
+import { useToastStore } from '@/stores/toast'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
@@ -11,30 +13,34 @@ export const useAuthStore = defineStore('auth', () => {
   const needsSetup = ref(false)
   /** Set when the API rejected a session the app believed was valid (expired, or the user was deleted). */
   const expired = ref(false)
+  /** Set when restoring the session failed for a reason other than being signed out: the API is unreachable or starting. */
+  const serverDown = ref(false)
   /** Public demo: a passwordless planner login and a data reset on a timer. */
   const demo = ref<DemoStatus>({ enabled: false, resetMinutes: 0, nextResetAt: null })
 
   const isAuthenticated = computed(() => user.value !== null)
   const isAdmin = computed(() => user.value?.role === 'Admin')
 
-  /** Restores the session from the cookie on first load, after checking whether setup is still pending. */
+  /**
+   * Restores the session from the cookie on first load, after checking whether setup is still pending.
+   * Leaves `checked` unset when the API could not be reached, so a later call tries again.
+   */
   async function restore() {
     if (checked.value) return
     try {
       const [setup, demoStatus] = await Promise.all([setupApi.status(), demoApi.status()])
       demo.value = demoStatus
       needsSetup.value = setup.needsSetup
-      if (needsSetup.value) {
-        user.value = null
+      user.value = needsSetup.value ? null : await authApi.me()
+    } catch (error) {
+      if (!(error instanceof ApiError && error.isUnauthorized)) {
+        serverDown.value = true
         return
       }
-      user.value = await authApi.me()
-    } catch (error) {
-      if (!(error instanceof ApiError && error.isUnauthorized)) throw error
       user.value = null
-    } finally {
-      checked.value = true
     }
+    serverDown.value = false
+    checked.value = true
   }
 
   /** Setup signs the new admin in; the app is open from here on. */
@@ -60,14 +66,35 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       await authApi.logout()
     } finally {
-      user.value = null
+      endSession()
     }
   }
 
   setUnauthorizedHandler(() => {
     if (user.value !== null) expired.value = true
-    user.value = null
+    endSession()
   })
 
-  return { user, checked, expired, needsSetup, demo, isAuthenticated, isAdmin, restore, completedSetup, login, loginDemo, logout }
+  /** Forgets everything that belonged to the signed-in user. */
+  function endSession() {
+    user.value = null
+    useScheduleStore().reset()
+    useToastStore().clear()
+  }
+
+  return {
+    user,
+    checked,
+    expired,
+    serverDown,
+    needsSetup,
+    demo,
+    isAuthenticated,
+    isAdmin,
+    restore,
+    completedSetup,
+    login,
+    loginDemo,
+    logout,
+  }
 })

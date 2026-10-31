@@ -16,6 +16,11 @@ const emit = defineEmits<{
 }>()
 
 const open = computed(() => Math.max(0, props.shift.headcount - props.shift.assignments.length))
+const label = computed(() => {
+  const s = props.shift
+  const assigned = s.assignments.length ? `assigned ${s.assignments.map((a) => a.technicianName).join(', ')}` : 'nobody assigned'
+  return `${s.siteName} ${timeOf(s.startsAt)} to ${timeOf(s.endsAt)}, ${s.requiredSkillName}, ${assigned}, ${open.value} open`
+})
 const slots = computed(() => [
   ...props.shift.assignments.map((a) => ({ key: a.id, name: a.technicianName, source: a.source })),
   ...Array.from({ length: open.value }, (_, i) => ({ key: `open-${i}`, name: null, source: null })),
@@ -45,9 +50,10 @@ function onDrop(event: DragEvent) {
     :style="{ '--site-color': shift.siteColor ?? 'var(--text-3)' }"
     tabindex="0"
     role="button"
-    :aria-label="`${shift.siteName} ${timeOf(shift.startsAt)} to ${timeOf(shift.endsAt)}, ${shift.requiredSkillName}, ${open} open`"
+    :aria-label="label"
     @click="emit('select', shift.id)"
     @keydown.enter.prevent="emit('select', shift.id)"
+    @keydown.space.prevent="emit('select', shift.id)"
     @dragover.prevent
     @drop.prevent="onDrop"
   >

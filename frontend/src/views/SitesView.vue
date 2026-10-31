@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { sitesApi } from '@/api'
 import { ApiError } from '@/api/client'
 import type { Site, SiteRequest } from '@/api/types'
@@ -12,7 +12,15 @@ const { fail } = useApiErrors()
 const sites = ref<Site[]>([])
 const editing = ref<Site | null | 'new'>(null)
 const errors = ref<Record<string, string[]>>({})
+const busy = ref(false)
 const form = reactive<SiteRequest>({ name: '', address: '', color: '#2563eb' })
+
+/** The first message for a field the form does not render, so no validation error goes unseen. */
+const shownFields = ['name', 'color']
+const otherError = computed(() => {
+  const key = Object.keys(errors.value).find((k) => !shownFields.includes(k))
+  return key ? errors.value[key]?.[0] : undefined
+})
 
 async function load() {
   sites.value = await sitesApi.list()
@@ -33,6 +41,7 @@ function open(s: Site | 'new') {
 
 async function save() {
   errors.value = {}
+  busy.value = true
   const request: SiteRequest = { name: form.name, address: form.address || null, color: form.color || null }
   try {
     if (editing.value === 'new') await sitesApi.create(request)
@@ -43,6 +52,8 @@ async function save() {
   } catch (e) {
     if (e instanceof ApiError && e.status === 400) errors.value = e.errors
     else fail(e)
+  } finally {
+    busy.value = false
   }
 }
 
@@ -106,12 +117,13 @@ async function remove(s: Site) {
         </div>
         <div class="field">
           <label for="color">Colour</label>
-          <input id="color" v-model="form.color" class="input color" type="color" />
+          <input id="color" v-model="form.color" class="input color" type="color" :aria-invalid="!!errors.color" />
           <span v-if="errors.color" class="field-error">{{ errors.color[0] }}</span>
         </div>
+        <p v-if="otherError" class="field-error" role="alert">{{ otherError }}</p>
         <div class="modal-actions">
           <button type="button" class="btn" @click="editing = null">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save</button>
+          <button type="submit" class="btn btn-primary" :disabled="busy">Save</button>
         </div>
       </form>
     </ModalDialog>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { usersApi } from '@/api'
 import { ApiError } from '@/api/client'
 import type { CreateUserRequest, User } from '@/api/types'
@@ -14,7 +14,15 @@ const { fail } = useApiErrors()
 const users = ref<User[]>([])
 const creating = ref(false)
 const errors = ref<Record<string, string[]>>({})
+const busy = ref(false)
 const form = reactive<CreateUserRequest>({ email: '', displayName: '', password: '', role: 'Planner' })
+
+/** The first message for a field the form does not render, so no validation error goes unseen. */
+const shownFields = ['displayName', 'email', 'password']
+const otherError = computed(() => {
+  const key = Object.keys(errors.value).find((k) => !shownFields.includes(k))
+  return key ? errors.value[key]?.[0] : undefined
+})
 
 async function load() {
   users.value = await usersApi.list()
@@ -22,17 +30,35 @@ async function load() {
 
 onMounted(() => load().catch(fail))
 
+/** The form starts blank every time it opens, and leaves nothing behind when cancelled. */
+function reset() {
+  errors.value = {}
+  Object.assign(form, { email: '', displayName: '', password: '', role: 'Planner' })
+}
+
+function open() {
+  reset()
+  creating.value = true
+}
+
+function cancel() {
+  reset()
+  creating.value = false
+}
+
 async function save() {
   errors.value = {}
+  busy.value = true
   try {
     await usersApi.create({ ...form })
-    creating.value = false
-    Object.assign(form, { email: '', displayName: '', password: '', role: 'Planner' })
+    cancel()
     toast.success('User created')
     await load()
   } catch (e) {
     if (e instanceof ApiError && e.status === 400) errors.value = e.errors
     else fail(e)
+  } finally {
+    busy.value = false
   }
 }
 
@@ -51,7 +77,7 @@ async function remove(u: User) {
   <div class="page">
     <header class="page-header">
       <h1>Users</h1>
-      <button class="btn btn-primary" @click="creating = true">+ User</button>
+      <button class="btn btn-primary" @click="open">+ User</button>
     </header>
 
     <div class="card">
@@ -81,7 +107,7 @@ async function remove(u: User) {
       </table>
     </div>
 
-    <ModalDialog v-if="creating" title="New user" @close="creating = false">
+    <ModalDialog v-if="creating" title="New user" @close="cancel">
       <form @submit.prevent="save">
         <div class="field">
           <label for="displayName">Name</label>
@@ -113,9 +139,10 @@ async function remove(u: User) {
             <option value="Admin">Admin</option>
           </select>
         </div>
+        <p v-if="otherError" class="field-error" role="alert">{{ otherError }}</p>
         <div class="modal-actions">
-          <button type="button" class="btn" @click="creating = false">Cancel</button>
-          <button type="submit" class="btn btn-primary">Create</button>
+          <button type="button" class="btn" @click="cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" :disabled="busy">Create</button>
         </div>
       </form>
     </ModalDialog>

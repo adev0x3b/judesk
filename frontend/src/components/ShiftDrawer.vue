@@ -4,7 +4,11 @@ import type { Candidate, Shift } from '@/api/types'
 import { shiftsApi } from '@/api'
 import { formatDay, dateOf, hoursLabel, timeOf } from '@/lib/week'
 
-const props = defineProps<{ shift: Shift }>()
+const props = defineProps<{
+  shift: Shift
+  /** True while the parent is waiting on the API for one of this drawer's actions. */
+  pending?: boolean
+}>()
 const emit = defineEmits<{
   close: []
   assign: [technicianId: string, overrideHours: boolean]
@@ -15,14 +19,22 @@ const emit = defineEmits<{
 
 const candidates = ref<Candidate[]>([])
 const loading = ref(false)
+const loadFailed = ref(false)
 const showIneligible = ref(false)
+/** Bumped on every request so a response for a shift that is no longer selected is ignored. */
+let loadSeq = 0
 
 async function loadCandidates() {
+  const seq = ++loadSeq
   loading.value = true
+  loadFailed.value = false
   try {
-    candidates.value = await shiftsApi.candidates(props.shift.id)
+    const result = await shiftsApi.candidates(props.shift.id)
+    if (seq === loadSeq) candidates.value = result
+  } catch {
+    if (seq === loadSeq) loadFailed.value = true
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
@@ -58,7 +70,7 @@ function onlyHoursViolation(c: Candidate) {
         <li v-for="a in shift.assignments" :key="a.id" class="row assigned">
           <span class="grow">{{ a.technicianName }}</span>
           <span v-if="a.source === 'Auto'" class="chip">auto</span>
-          <button class="btn btn-sm" @click="emit('unassign', a.id)">Unassign</button>
+          <button class="btn btn-sm" :disabled="pending" @click="emit('unassign', a.id)">Unassign</button>
         </li>
       </ul>
       <p v-else class="faint">Nobody yet.</p>
@@ -73,6 +85,7 @@ function onlyHoursViolation(c: Candidate) {
         </label>
       </div>
       <p v-if="loading" class="faint">Checking rules…</p>
+      <p v-else-if="loadFailed" class="field-error" role="alert">Could not load candidates.</p>
       <p v-else-if="shift.assignments.length >= shift.headcount" class="faint">This shift is fully staffed.</p>
       <p v-else-if="!showIneligible && !candidates.some((c) => c.eligible || onlyHoursViolation(c))" class="faint">
         Nobody is eligible right now. Tick "show ineligible" to see why.
@@ -87,13 +100,19 @@ function onlyHoursViolation(c: Candidate) {
           <div class="row">
             <span class="grow name">{{ c.fullName }}</span>
             <span class="mono faint">{{ hoursLabel(c.scheduledHours) }} / {{ c.maxWeeklyHours }}</span>
-            <button v-if="c.eligible" class="btn btn-sm btn-primary" @click="emit('assign', c.technicianId, false)">
+            <button
+              v-if="c.eligible"
+              class="btn btn-sm btn-primary"
+              :disabled="pending"
+              @click="emit('assign', c.technicianId, false)"
+            >
               Assign
             </button>
             <button
               v-else-if="onlyHoursViolation(c)"
               class="btn btn-sm"
               title="Assign anyway, over the weekly limit"
+              :disabled="pending"
               @click="emit('assign', c.technicianId, true)"
             >
               Override
@@ -115,7 +134,7 @@ function onlyHoursViolation(c: Candidate) {
 
     <footer class="row drawer-foot">
       <button class="btn" @click="emit('edit')">Edit</button>
-      <button class="btn btn-danger" @click="emit('remove')">Delete shift</button>
+      <button class="btn btn-danger" :disabled="pending" @click="emit('remove')">Delete shift</button>
     </footer>
   </aside>
 </template>
@@ -199,5 +218,18 @@ section h3 {
   justify-content: space-between;
   padding-top: 8px;
   border-top: 1px solid var(--border);
+}
+
+/* Narrow screens: a bottom sheet over the grid, so tapping a shift shows something right away. */
+@media (max-width: 1000px) {
+  .drawer {
+    position: fixed;
+    inset: auto 0 0 0;
+    top: auto;
+    z-index: 30;
+    max-height: 70vh;
+    border-radius: 14px 14px 0 0;
+    box-shadow: var(--shadow-lg);
+  }
 }
 </style>

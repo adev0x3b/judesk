@@ -1,15 +1,48 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
+import { demoApi } from '@/api'
+import { useApiErrors } from '@/composables/useApiErrors'
 import { useAuthStore } from '@/stores/auth'
+import { useScheduleStore } from '@/stores/schedule'
+import ThemeButton from '@/components/ThemeButton.vue'
 
 const auth = useAuthStore()
+const schedule = useScheduleStore()
 const router = useRouter()
+const { fail } = useApiErrors()
 
+/** Shown in the browser's time zone, and labelled as such, since the rest of the app shows UTC. */
 const nextReset = computed(() => {
   const at = auth.demo.nextResetAt
   return at ? new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null
 })
+
+let resetTimer: number | undefined
+
+/** Asks the API for the next reset once the announced one has passed, and reloads the week the reset wiped. */
+async function refreshDemo() {
+  const previous = auth.demo.nextResetAt
+  try {
+    auth.demo = await demoApi.status()
+    if (auth.demo.nextResetAt !== previous) schedule.load().catch(fail)
+  } catch {
+    // Mid-reset the API may be busy; the timer below asks again shortly.
+  }
+  armResetTimer()
+}
+
+function armResetTimer() {
+  window.clearTimeout(resetTimer)
+  const at = auth.demo.nextResetAt
+  if (!auth.demo.enabled || !at) return
+  const wait = new Date(at).getTime() - Date.now()
+  // A little slack so the reset has run by the time we ask; once it is overdue, poll until the API reports the next one.
+  resetTimer = window.setTimeout(refreshDemo, wait > 0 ? Math.min(wait + 2000, 2 ** 31 - 1) : 15000)
+}
+
+watch(() => auth.demo.nextResetAt, armResetTimer, { immediate: true })
+onBeforeUnmount(() => window.clearTimeout(resetTimer))
 
 async function logout() {
   await auth.logout()
@@ -33,13 +66,14 @@ async function logout() {
       <div class="user">
         <span class="muted">{{ auth.user?.displayName }}</span>
         <span class="chip">{{ auth.user?.role }}</span>
+        <ThemeButton />
         <button class="btn btn-ghost btn-sm" @click="logout">Sign out</button>
       </div>
     </header>
     <p v-if="auth.demo.enabled" class="demo-banner" role="status">
       Public demo: anything you change is thrown away every
       {{ auth.demo.resetMinutes === 60 ? 'hour' : `${auth.demo.resetMinutes} minutes`
-      }}<template v-if="nextReset"> (next reset at {{ nextReset }})</template>.
+      }}<template v-if="nextReset"> (next reset at {{ nextReset }} local)</template>.
     </p>
     <main class="content">
       <slot />

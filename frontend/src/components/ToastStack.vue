@@ -7,7 +7,17 @@ const toasts = useToastStore()
 <template>
   <div class="toasts" aria-live="polite">
     <TransitionGroup name="toast">
-      <div v-for="toast in toasts.toasts" :key="toast.id" class="toast" :class="`toast-${toast.kind}`" role="status">
+      <div
+        v-for="toast in toasts.toasts"
+        :key="toast.id"
+        class="toast"
+        :class="`toast-${toast.kind}`"
+        :role="toast.kind === 'error' ? 'alert' : undefined"
+        @mouseenter="toasts.pause(toast.id)"
+        @mouseleave="toasts.resume(toast.id)"
+        @focusin="toasts.pause(toast.id)"
+        @focusout="toasts.resume(toast.id)"
+      >
         <div class="toast-body">
           <strong>{{ toast.title }}</strong>
           <p v-for="(line, i) in toast.lines" :key="i">{{ line }}</p>

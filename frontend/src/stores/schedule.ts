@@ -32,13 +32,29 @@ export const useScheduleStore = defineStore('schedule', () => {
 
   const openSlots = computed(() => visibleShifts.value.reduce((n, s) => n + Math.max(0, s.headcount - s.assignments.length), 0))
 
+  /** Bumped on every load so a response that arrives after a newer request started is ignored. */
+  let loadSeq = 0
+
   async function load() {
+    const seq = ++loadSeq
     loading.value = true
     try {
-      week.value = await scheduleApi.week(weekStart.value)
+      const result = await scheduleApi.week(weekStart.value)
+      if (seq === loadSeq) week.value = result
     } finally {
-      loading.value = false
+      if (seq === loadSeq) loading.value = false
     }
+  }
+
+  /** Forgets the loaded week and the selection, e.g. when the user signs out. In-flight loads are dropped. */
+  function reset() {
+    loadSeq++
+    loading.value = false
+    week.value = null
+    siteFilter.value = null
+    selectedShiftId.value = null
+    draggingTechnicianId.value = null
+    weekStart.value = isoDate(mondayOf(new Date()))
   }
 
   function goTo(start: string) {
@@ -120,6 +136,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     openSlots,
     exportUrl,
     load,
+    reset,
     goTo,
     nextWeek,
     previousWeek,

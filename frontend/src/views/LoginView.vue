@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
+import ThemeButton from '@/components/ThemeButton.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -13,6 +14,25 @@ const password = ref('')
 const error = ref<string | null>(null)
 const busy = ref(false)
 const expired = route.query.expired === '1'
+
+/** Where to go after signing in: only a path inside this app, never another origin. */
+function nextPath() {
+  const next = route.query.next
+  return typeof next === 'string' && next.startsWith('/') && !next.startsWith('//') ? next : '/'
+}
+
+/** The first page load could not reach the API; try the session restore again. */
+async function retry() {
+  busy.value = true
+  try {
+    await auth.restore()
+    if (auth.serverDown) return
+    if (auth.needsSetup) await router.push({ name: 'setup' })
+    else if (auth.isAuthenticated) await router.push(nextPath())
+  } finally {
+    busy.value = false
+  }
+}
 
 async function tryDemo() {
   error.value = null
@@ -33,8 +53,7 @@ async function submit() {
   busy.value = true
   try {
     await auth.login(email.value, password.value)
-    const next = typeof route.query.next === 'string' ? route.query.next : '/'
-    await router.push(next)
+    await router.push(nextPath())
   } catch (e) {
     error.value =
       e instanceof ApiError ? (e.status === 429 ? 'Too many attempts, wait a minute.' : e.title) : 'Could not reach the server.'
@@ -50,34 +69,43 @@ async function submit() {
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"></span>
         <h1>JuDesk</h1>
+        <ThemeButton class="theme" />
       </div>
       <p class="muted tagline">Shift scheduling for field technicians</p>
 
-      <p v-if="expired && !error" class="notice" role="status">Your session has expired. Sign in again.</p>
+      <template v-if="auth.serverDown">
+        <p class="field-error" role="alert">Could not reach the server. It may still be starting.</p>
+        <button class="btn btn-primary submit" type="button" :disabled="busy" @click="retry">
+          {{ busy ? 'Retrying…' : 'Retry' }}
+        </button>
+      </template>
+      <template v-else>
+        <p v-if="expired && !error" class="notice" role="status">Your session has expired. Sign in again.</p>
 
-      <div class="field">
-        <label for="email">Email</label>
-        <input id="email" v-model="email" class="input" type="email" autocomplete="username" required autofocus />
-      </div>
-      <div class="field">
-        <label for="password">Password</label>
-        <input id="password" v-model="password" class="input" type="password" autocomplete="current-password" required />
-      </div>
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" v-model="email" class="input" type="email" autocomplete="username" required autofocus />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" v-model="password" class="input" type="password" autocomplete="current-password" required />
+        </div>
 
-      <p v-if="error" class="field-error" role="alert">{{ error }}</p>
+        <p v-if="error" class="field-error" role="alert">{{ error }}</p>
 
-      <button class="btn btn-primary submit" type="submit" :disabled="busy">
-        {{ busy ? 'Signing in…' : 'Sign in' }}
-      </button>
+        <button class="btn btn-primary submit" type="submit" :disabled="busy">
+          {{ busy ? 'Signing in…' : 'Sign in' }}
+        </button>
 
-      <div v-if="auth.demo.enabled" class="demo">
-        <div class="divider"><span>or</span></div>
-        <button class="btn submit" type="button" :disabled="busy" @click="tryDemo">Try the demo</button>
-        <p class="muted demo-hint">
-          Signs you in as a planner with a sample fleet. Everything resets every
-          {{ auth.demo.resetMinutes === 60 ? 'hour' : `${auth.demo.resetMinutes} minutes` }}.
-        </p>
-      </div>
+        <div v-if="auth.demo.enabled" class="demo">
+          <div class="divider"><span>or</span></div>
+          <button class="btn submit" type="button" :disabled="busy" @click="tryDemo">Try the demo</button>
+          <p class="muted demo-hint">
+            Signs you in as a planner with a sample fleet. Everything resets every
+            {{ auth.demo.resetMinutes === 60 ? 'hour' : `${auth.demo.resetMinutes} minutes` }}.
+          </p>
+        </div>
+      </template>
     </form>
   </div>
 </template>
@@ -105,6 +133,10 @@ async function submit() {
 .brand h1 {
   font-size: 24px;
   letter-spacing: -0.02em;
+}
+
+.brand .theme {
+  margin-left: auto;
 }
 
 .brand-mark {

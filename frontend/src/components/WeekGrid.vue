@@ -8,6 +8,8 @@ defineProps<{
   shiftsByDay: Map<string, Shift[]>
   selectedShiftId: string | null
   dragging: TechnicianLoad | null
+  /** True while the first week is still on its way: the columns say so instead of "No shifts". */
+  loading?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -38,7 +40,8 @@ const today = isoDate(new Date())
           @select="(id) => emit('select', id)"
           @drop="(id, tech) => emit('drop', id, tech)"
         />
-        <p v-if="(shiftsByDay.get(day) ?? []).length === 0" class="none faint">No shifts</p>
+        <p v-if="loading" class="none faint">Loading…</p>
+        <p v-else-if="(shiftsByDay.get(day) ?? []).length === 0" class="none faint">No shifts</p>
       </div>
     </section>
   </div>

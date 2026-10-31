@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { skillsApi, techniciansApi } from '@/api'
 import { ApiError } from '@/api/client'
 import type { Skill, Technician, TechnicianRequest } from '@/api/types'
@@ -14,8 +14,16 @@ const skills = ref<Skill[]>([])
 const editing = ref<Technician | null | 'new'>(null)
 const newSkill = ref('')
 const errors = ref<Record<string, string[]>>({})
+const busy = ref(false)
 
 const form = reactive<TechnicianRequest>({ fullName: '', email: '', phone: '', maxWeeklyHours: 40, active: true, skillIds: [] })
+
+/** The first message for a field the form does not render, so no validation error goes unseen. */
+const shownFields = ['fullName', 'maxWeeklyHours']
+const otherError = computed(() => {
+  const key = Object.keys(errors.value).find((k) => !shownFields.includes(k))
+  return key ? errors.value[key]?.[0] : undefined
+})
 
 async function load() {
   ;[technicians.value, skills.value] = await Promise.all([techniciansApi.list(), skillsApi.list()])
@@ -43,6 +51,7 @@ function open(t: Technician | 'new') {
 
 async function save() {
   errors.value = {}
+  busy.value = true
   const request: TechnicianRequest = {
     ...form,
     email: form.email || null,
@@ -58,6 +67,8 @@ async function save() {
   } catch (e) {
     if (e instanceof ApiError && e.status === 400) errors.value = e.errors
     else fail(e)
+  } finally {
+    busy.value = false
   }
 }
 
@@ -167,11 +178,11 @@ function toggleSkill(id: string) {
         <div class="form-row">
           <div class="field">
             <label for="email">Email</label>
-            <input id="email" v-model="form.email" class="input" type="email" />
+            <input id="email" v-model="form.email" class="input" type="email" maxlength="200" />
           </div>
           <div class="field">
             <label for="phone">Phone</label>
-            <input id="phone" v-model="form.phone" class="input" />
+            <input id="phone" v-model="form.phone" class="input" maxlength="40" />
           </div>
         </div>
         <div class="form-row">
@@ -180,13 +191,13 @@ function toggleSkill(id: string) {
             <input id="max" v-model.number="form.maxWeeklyHours" class="input" type="number" min="1" max="80" required />
             <span v-if="errors.maxWeeklyHours" class="field-error">{{ errors.maxWeeklyHours[0] }}</span>
           </div>
-          <div class="field">
-            <label>Status</label>
+          <fieldset class="field">
+            <legend>Status</legend>
             <label class="checkbox"><input v-model="form.active" type="checkbox" /> Active</label>
-          </div>
+          </fieldset>
         </div>
-        <div class="field">
-          <label>Skills</label>
+        <fieldset class="field">
+          <legend>Skills</legend>
           <div class="skill-list">
             <button
               v-for="s in skills"
@@ -200,10 +211,11 @@ function toggleSkill(id: string) {
               {{ s.name }}
             </button>
           </div>
-        </div>
+        </fieldset>
+        <p v-if="otherError" class="field-error" role="alert">{{ otherError }}</p>
         <div class="modal-actions">
           <button type="button" class="btn" @click="editing = null">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save</button>
+          <button type="submit" class="btn btn-primary" :disabled="busy">Save</button>
         </div>
       </form>
     </ModalDialog>

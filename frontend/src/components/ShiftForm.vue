@@ -12,6 +12,8 @@ const props = defineProps<{
   shift?: Shift
   /** Default day for a new shift. */
   day?: string
+  /** True while the parent is waiting on the API, so the form cannot be submitted twice. */
+  saving?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -32,10 +34,18 @@ const form = reactive({
 const errors = ref<Record<string, string[]>>({})
 const busy = ref(false)
 const locked = computed(() => (props.shift?.assignments.length ?? 0) > 0)
+const incomplete = computed(() => props.sites.length === 0 || props.skills.length === 0)
 
 function error(field: string) {
   return errors.value[field]?.[0]
 }
+
+/** The first message for a field the form does not render, so no validation error goes unseen. */
+const shownFields = ['siteId', 'endsAt', 'headcount', 'form']
+const otherError = computed(() => {
+  const key = Object.keys(errors.value).find((k) => !shownFields.includes(k))
+  return key ? errors.value[key]?.[0] : undefined
+})
 
 async function submit() {
   errors.value = {}
@@ -137,11 +147,15 @@ defineExpose({ showErrors })
       <p v-if="locked" class="faint">
         Time and skill are locked while technicians are assigned. Unassign them first to change those.
       </p>
+      <p v-if="incomplete" class="field-error">Create a site and a skill first.</p>
       <p v-if="error('form')" class="field-error" role="alert">{{ error('form') }}</p>
+      <p v-else-if="otherError" class="field-error" role="alert">{{ otherError }}</p>
 
       <div class="modal-actions">
         <button type="button" class="btn" @click="emit('close')">Cancel</button>
-        <button type="submit" class="btn btn-primary" :disabled="busy">{{ shift ? 'Save' : 'Create shift' }}</button>
+        <button type="submit" class="btn btn-primary" :disabled="busy || saving || incomplete">
+          {{ shift ? 'Save' : 'Create shift' }}
+        </button>
       </div>
     </form>
   </ModalDialog>

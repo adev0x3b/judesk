@@ -8,7 +8,7 @@ import ShiftDrawer from '@/components/ShiftDrawer.vue'
 import ShiftForm from '@/components/ShiftForm.vue'
 import TechnicianPanel from '@/components/TechnicianPanel.vue'
 import WeekGrid from '@/components/WeekGrid.vue'
-import { formatRange } from '@/lib/week'
+import { dateOf, formatRange, isoDate, mondayOf } from '@/lib/week'
 import { useScheduleStore } from '@/stores/schedule'
 import { useApiErrors } from '@/composables/useApiErrors'
 import { useToastStore } from '@/stores/toast'
@@ -22,6 +22,10 @@ const skills = ref<Skill[]>([])
 const form = ref<{ shift?: Shift; day?: string } | null>(null)
 const formRef = ref<InstanceType<typeof ShiftForm> | null>(null)
 const showAuto = ref(false)
+/** True while the shift form's request is in flight, so it cannot be submitted twice. */
+const saving = ref(false)
+/** True while a drawer or "undo auto" action is in flight, so the buttons cannot fire twice. */
+const pending = ref(false)
 
 const dragging = computed(() => schedule.week?.technicians.find((t) => t.id === schedule.draggingTechnicianId) ?? null)
 
@@ -41,6 +45,7 @@ async function onDrop(shiftId: string, technicianId: string) {
 }
 
 async function assign(shiftId: string, technicianId: string, overrideHours: boolean) {
+  pending.value = true
   try {
     const rejected = await schedule.assign(shiftId, technicianId, overrideHours)
     if (rejected) {
@@ -52,25 +57,33 @@ async function assign(shiftId: string, technicianId: string, overrideHours: bool
     }
   } catch (e) {
     fail(e)
+  } finally {
+    pending.value = false
   }
 }
 
 async function unassign(assignmentId: string) {
   if (!schedule.selectedShift) return
+  pending.value = true
   try {
     await schedule.unassign(schedule.selectedShift.id, assignmentId)
   } catch (e) {
     fail(e)
+  } finally {
+    pending.value = false
   }
 }
 
 async function saveShift(request: ShiftRequest, id?: string) {
+  saving.value = true
   try {
     if (id) {
       await schedule.updateShift(id, request)
       toast.success('Shift updated')
     } else {
       const created = await schedule.createShift(request)
+      // A shift created on a day outside the visible week would otherwise vanish; follow it.
+      if (!schedule.days.includes(dateOf(created.startsAt))) await schedule.goTo(isoDate(mondayOf(new Date(created.startsAt))))
       schedule.select(created.id)
       toast.success('Shift created')
     }
@@ -78,17 +91,22 @@ async function saveShift(request: ShiftRequest, id?: string) {
   } catch (e) {
     if (e instanceof ApiError && (e.status === 400 || e.status === 409)) formRef.value?.showErrors(e)
     else fail(e)
+  } finally {
+    saving.value = false
   }
 }
 
 async function removeShift() {
   const shift = schedule.selectedShift
   if (!shift || !window.confirm(`Delete the ${shift.siteName} shift and its assignments?`)) return
+  pending.value = true
   try {
     await schedule.deleteShift(shift.id)
     toast.info('Shift deleted')
   } catch (e) {
     fail(e)
+  } finally {
+    pending.value = false
   }
 }
 
@@ -106,11 +124,14 @@ async function applyAuto() {
 }
 
 async function undoAuto() {
+  pending.value = true
   try {
     const removed = await schedule.clearAuto()
     toast.info(`${removed} auto assignment${removed === 1 ? '' : 's'} removed`)
   } catch (e) {
     fail(e)
+  } finally {
+    pending.value = false
   }
 }
 
@@ -121,9 +142,11 @@ const hasAuto = computed(() => schedule.week?.shifts.some((s) => s.assignments.s
   <div class="schedule">
     <header class="toolbar">
       <div class="row">
-        <button class="btn btn-icon" aria-label="Previous week" @click="schedule.previousWeek()">‹</button>
-        <button class="btn" @click="schedule.thisWeek()">Today</button>
-        <button class="btn btn-icon" aria-label="Next week" @click="schedule.nextWeek()">›</button>
+        <button class="btn btn-icon" aria-label="Previous week" :disabled="schedule.loading" @click="schedule.previousWeek()">
+          ‹
+        </button>
+        <button class="btn" :disabled="schedule.loading" @click="schedule.thisWeek()">Today</button>
+        <button class="btn btn-icon" aria-label="Next week" :disabled="schedule.loading" @click="schedule.nextWeek()">›</button>
         <h1 v-if="schedule.week" class="range">{{ formatRange(schedule.week.weekStart, schedule.week.weekEnd) }}</h1>
         <span v-if="schedule.week" class="chip" :class="schedule.openSlots ? 'chip-warning' : 'chip-success'">
           {{ schedule.openSlots ? `${schedule.openSlots} open` : 'All covered' }}
@@ -135,7 +158,7 @@ const hasAuto = computed(() => schedule.week?.shifts.some((s) => s.assignments.s
           <option v-for="site in sites" :key="site.id" :value="site.id">{{ site.name }}</option>
         </select>
         <button class="btn" @click="form = { day: schedule.days[0] }">+ Shift</button>
-        <button v-if="hasAuto" class="btn" @click="undoAuto">Undo auto</button>
+        <button v-if="hasAuto" class="btn" :disabled="pending" @click="undoAuto">Undo auto</button>
         <button class="btn btn-primary" :disabled="!schedule.openSlots" @click="showAuto = true">Auto-assign</button>
         <a class="btn" :href="schedule.exportUrl" download>Export CSV</a>
       </div>
@@ -154,6 +177,7 @@ const hasAuto = computed(() => schedule.week?.shifts.some((s) => s.assignments.s
           :shifts-by-day="schedule.shiftsByDay"
           :selected-shift-id="schedule.selectedShiftId"
           :dragging="dragging"
+          :loading="schedule.loading && !schedule.week"
           @select="(id) => schedule.select(schedule.selectedShiftId === id ? null : id)"
           @drop="onDrop"
           @add="(day) => (form = { day })"
@@ -162,6 +186,7 @@ const hasAuto = computed(() => schedule.week?.shifts.some((s) => s.assignments.s
       <ShiftDrawer
         v-if="schedule.selectedShift"
         :shift="schedule.selectedShift"
+        :pending="pending"
         @close="schedule.select(null)"
         @assign="(tech, override) => assign(schedule.selectedShift!.id, tech, override)"
         @unassign="unassign"
@@ -177,6 +202,7 @@ const hasAuto = computed(() => schedule.week?.shifts.some((s) => s.assignments.s
       :skills="skills"
       :shift="form.shift"
       :day="form.day"
+      :saving="saving"
       @close="form = null"
       @save="saveShift"
     />

@@ -17,6 +17,10 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
   await auth.restore()
+  // The API could not be reached: the login page explains and offers a retry.
+  if (auth.serverDown) {
+    return to.name === 'login' ? true : { name: 'login', query: to.fullPath === '/' ? {} : { next: to.fullPath } }
+  }
   // Until the first admin exists, the setup page is the whole app.
   if (auth.needsSetup) {
     return to.name === 'setup' ? true : { name: 'setup' }

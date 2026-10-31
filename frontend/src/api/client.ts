@@ -9,7 +9,9 @@ export class ApiError extends Error {
   readonly violations: Violation[]
 
   constructor(status: number, body: Record<string, unknown> | null) {
-    const title = (body?.title as string | undefined) ?? `Request failed (${status})`
+    const title =
+      (body?.title as string | undefined) ??
+      (status === 403 ? "You don't have permission to do that." : `Request failed (${status})`)
     super(title)
     this.status = status
     this.title = title

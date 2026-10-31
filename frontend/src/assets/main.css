@@ -1,52 +1,41 @@
 :root {
+  color-scheme: light dark;
   --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-
-  --bg: #f4f6fa;
-  --surface: #ffffff;
-  --surface-2: #f0f3f8;
-  --border: #dde3ec;
-  --border-strong: #c3ccd9;
-  --text: #0f172a;
-  --text-2: #475569;
-  --text-3: #94a3b8;
-  --accent: #2563eb;
+  --bg: light-dark(#f4f6fa, #0b1220);
+  --surface: light-dark(#ffffff, #111a2b);
+  --surface-2: light-dark(#f0f3f8, #182338);
+  --border: light-dark(#dde3ec, #243049);
+  --border-strong: light-dark(#c3ccd9, #34425f);
+  --text: light-dark(#0f172a, #e6edf7);
+  --text-2: light-dark(#475569, #a9b6cb);
+  --text-3: light-dark(#94a3b8, #6c7a93);
+  --accent: light-dark(#2563eb, #3b82f6);
   --accent-text: #ffffff;
-  --accent-soft: #dbeafe;
-  --success: #15803d;
-  --success-soft: #dcfce7;
-  --warning: #b45309;
-  --warning-soft: #fef3c7;
-  --danger: #b91c1c;
-  --danger-soft: #fee2e2;
-  --shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 4px 16px rgb(15 23 42 / 0.06);
-  --shadow-lg: 0 12px 40px rgb(15 23 42 / 0.18);
+  --accent-soft: light-dark(#dbeafe, #1e3a8a);
+  --success: light-dark(#15803d, #4ade80);
+  --success-soft: light-dark(#dcfce7, #14532d);
+  --warning: light-dark(#b45309, #fbbf24);
+  --warning-soft: light-dark(#fef3c7, #78350f);
+  --danger: light-dark(#b91c1c, #f87171);
+  --danger-soft: light-dark(#fee2e2, #7f1d1d);
+  --shadow-ink-1: light-dark(rgb(15 23 42 / 0.06), rgb(0 0 0 / 0.4));
+  --shadow-ink-2: light-dark(rgb(15 23 42 / 0.06), rgb(0 0 0 / 0.3));
+  --shadow-ink-lg: light-dark(rgb(15 23 42 / 0.18), rgb(0 0 0 / 0.6));
+  --shadow: 0 1px 2px var(--shadow-ink-1), 0 4px 16px var(--shadow-ink-2);
+  --shadow-lg: 0 12px 40px var(--shadow-ink-lg);
   --radius: 10px;
   --radius-sm: 6px;
   --topbar-h: 56px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0b1220;
-    --surface: #111a2b;
-    --surface-2: #182338;
-    --border: #243049;
-    --border-strong: #34425f;
-    --text: #e6edf7;
-    --text-2: #a9b6cb;
-    --text-3: #6c7a93;
-    --accent: #3b82f6;
-    --accent-soft: #1e3a8a;
-    --success: #4ade80;
-    --success-soft: #14532d;
-    --warning: #fbbf24;
-    --warning-soft: #78350f;
-    --danger: #f87171;
-    --danger-soft: #7f1d1d;
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 16px rgb(0 0 0 / 0.3);
-    --shadow-lg: 0 12px 40px rgb(0 0 0 / 0.6);
-  }
+/* The theme button forces one scheme; without it the system setting wins. */
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
 }
 
 *,
@@ -190,10 +179,23 @@ textarea {
   margin-bottom: 12px;
 }
 
-.field label {
+.field label,
+.field legend {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--text-2);
+}
+
+fieldset.field {
+  border: 0;
+  padding: 0;
+  margin-inline: 0;
+  min-width: 0;
+}
+
+.field legend {
+  padding: 0;
+  margin-bottom: 4px;
 }
 
 .input,
@@ -274,6 +276,11 @@ textarea.input {
 }
 
 /* ---------- Tables ---------- */
+/* A wide table scrolls inside its card instead of widening the page on a phone. */
+.card:has(> .table) {
+  overflow-x: auto;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -338,24 +345,26 @@ textarea.input {
 }
 
 /* ---------- Modal ---------- */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgb(2 6 23 / 0.55);
-  display: grid;
-  place-items: center;
-  z-index: 50;
-  padding: 20px;
-}
-
+/* A native <dialog> opened with showModal(): the browser centres it, traps focus and handles Esc. */
 .modal {
-  width: min(520px, 100%);
+  width: min(520px, calc(100% - 40px));
   max-height: calc(100vh - 40px);
   overflow: auto;
-  padding: 20px;
+  padding: 0;
+  border: 0;
   background: var(--surface);
+  color: var(--text);
   border-radius: 14px;
   box-shadow: var(--shadow-lg);
+}
+
+.modal::backdrop {
+  background: rgb(2 6 23 / 0.55);
+}
+
+/* The padding lives here so a click on the dialog element itself can only be a click on the backdrop. */
+.modal-body {
+  padding: 20px;
 }
 
 .modal-header {

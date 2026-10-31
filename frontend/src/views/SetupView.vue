@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { setupApi } from '@/api'
 import { ApiError } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
+import ThemeButton from '@/components/ThemeButton.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -45,6 +46,7 @@ async function submit() {
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"></span>
         <h1>JuDesk</h1>
+        <ThemeButton class="theme" />
       </div>
       <h2>Create the admin account</h2>
       <p class="muted intro">
@@ -136,6 +138,10 @@ async function submit() {
   align-items: center;
   gap: 10px;
   margin-bottom: 14px;
+}
+
+.brand .theme {
+  margin-left: auto;
 }
 
 .brand h1 {

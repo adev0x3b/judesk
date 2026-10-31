@@ -79,15 +79,52 @@ describe('schedule store', () => {
   })
 
   it('moves between weeks', async () => {
+    const { scheduleApi } = await import('@/api')
     const store = useScheduleStore()
     store.weekStart = '2026-10-12'
 
     await store.nextWeek()
     expect(store.weekStart).toBe('2026-10-19')
+    expect(scheduleApi.week).toHaveBeenLastCalledWith('2026-10-19')
     await store.previousWeek()
     await store.previousWeek()
     expect(store.weekStart).toBe('2026-10-05')
+    expect(scheduleApi.week).toHaveBeenLastCalledWith('2026-10-05')
     expect(store.exportUrl).toBe('/api/schedule/export?weekStart=2026-10-05')
+  })
+
+  it('ignores a week response that arrives after a newer request started', async () => {
+    const { scheduleApi } = await import('@/api')
+    const store = useScheduleStore()
+    store.weekStart = '2026-10-12'
+    let resolveFirst: (w: WeekSchedule) => void = () => {}
+    vi.mocked(scheduleApi.week).mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
+    const later: WeekSchedule = { ...week, weekStart: '2026-10-19', weekEnd: '2026-10-25', shifts: [] }
+    vi.mocked(scheduleApi.week).mockResolvedValueOnce(later)
+
+    const first = store.load()
+    await store.nextWeek()
+    expect(store.week?.weekStart).toBe('2026-10-19')
+    expect(store.loading).toBe(false)
+
+    resolveFirst(week)
+    await first
+    expect(store.week?.weekStart).toBe('2026-10-19')
+    expect(store.loading).toBe(false)
+  })
+
+  it('forgets the week and the selection on reset', async () => {
+    const store = useScheduleStore()
+    store.weekStart = '2026-10-12'
+    await store.load()
+    store.select('s1')
+    store.siteFilter = 'a'
+
+    store.reset()
+
+    expect(store.week).toBeNull()
+    expect(store.selectedShift).toBeNull()
+    expect(store.siteFilter).toBeNull()
   })
 
   it('reloads after an assignment and reports rule conflicts instead of throwing', async () => {
