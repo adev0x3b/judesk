@@ -4,9 +4,11 @@ import { skillsApi, techniciansApi } from '@/api'
 import { ApiError } from '@/api/client'
 import type { Skill, Technician, TechnicianRequest } from '@/api/types'
 import ModalDialog from '@/components/ModalDialog.vue'
+import { useApiErrors } from '@/composables/useApiErrors'
 import { useToastStore } from '@/stores/toast'
 
 const toast = useToastStore()
+const { fail } = useApiErrors()
 const technicians = ref<Technician[]>([])
 const skills = ref<Skill[]>([])
 const editing = ref<Technician | null | 'new'>(null)
@@ -20,11 +22,6 @@ async function load() {
 }
 
 onMounted(() => load().catch(fail))
-
-function fail(e: unknown) {
-  if (e instanceof ApiError) toast.error(e.title, e.detail ? [e.detail] : [])
-  else toast.error('Something went wrong')
-}
 
 function open(t: Technician | 'new') {
   errors.value = {}

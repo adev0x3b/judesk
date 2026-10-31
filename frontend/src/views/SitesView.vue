@@ -4,9 +4,11 @@ import { sitesApi } from '@/api'
 import { ApiError } from '@/api/client'
 import type { Site, SiteRequest } from '@/api/types'
 import ModalDialog from '@/components/ModalDialog.vue'
+import { useApiErrors } from '@/composables/useApiErrors'
 import { useToastStore } from '@/stores/toast'
 
 const toast = useToastStore()
+const { fail } = useApiErrors()
 const sites = ref<Site[]>([])
 const editing = ref<Site | null | 'new'>(null)
 const errors = ref<Record<string, string[]>>({})
@@ -17,11 +19,6 @@ async function load() {
 }
 
 onMounted(() => load().catch(fail))
-
-function fail(e: unknown) {
-  if (e instanceof ApiError) toast.error(e.title, e.detail ? [e.detail] : [])
-  else toast.error('Something went wrong')
-}
 
 function open(s: Site | 'new') {
   errors.value = {}

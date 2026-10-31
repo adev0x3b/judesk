@@ -32,6 +32,29 @@ public class CatalogTests(ApiFixture fixture)
     }
 
     [Fact]
+    public async Task A_skill_still_needed_by_an_upcoming_assignment_cannot_be_removed()
+    {
+        var client = await fixture.AdminClientAsync();
+        var skill = await client.CreateSkillAsync();
+        var site = await client.CreateSiteAsync();
+        var tech = await client.CreateTechnicianAsync("Marco Neri", 40, true, skill.Id);
+        var shift = await client.CreateShiftAsync(site.Id, skill.Id, new DateTime(2031, 3, 3, 8, 0, 0, DateTimeKind.Utc), 8);
+        var assignment = await (await client.AssignAsync(shift.Id, tech.Id)).Content.ReadFromJsonAsync<AssignmentDto>();
+
+        var strip = await client.PutAsJsonAsync($"/api/technicians/{tech.Id}", new TechnicianRequest("Marco Neri", null, null, 40, true, []));
+        Assert.Equal(HttpStatusCode.Conflict, strip.StatusCode);
+        Assert.Contains(skill.Name, await strip.Content.ReadAsStringAsync());
+
+        // Keeping the skill while changing anything else is fine.
+        var rename = await client.PutAsJsonAsync($"/api/technicians/{tech.Id}", new TechnicianRequest("Marco Neri Jr", null, null, 40, true, [skill.Id]));
+        Assert.Equal(HttpStatusCode.OK, rename.StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/shifts/{shift.Id}/assignments/{assignment!.Id}")).StatusCode);
+        var now = await client.PutAsJsonAsync($"/api/technicians/{tech.Id}", new TechnicianRequest("Marco Neri", null, null, 40, true, []));
+        Assert.Equal(HttpStatusCode.OK, now.StatusCode);
+    }
+
+    [Fact]
     public async Task Invalid_technician_returns_field_errors()
     {
         var client = await fixture.AdminClientAsync();

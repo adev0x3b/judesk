@@ -5,6 +5,8 @@ using JuDesk.Api.Data;
 using JuDesk.Api.Endpoints;
 using JuDesk.Api.Services;
 using JuDesk.Domain.Entities;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +23,24 @@ builder.Services.AddScoped<ScheduleService>();
 builder.Services.AddScoped<SetupService>();
 builder.Services.AddJuDeskAuth();
 builder.Services.AddProblemDetails();
+
+// Behind the nginx of docker-compose (or any reverse proxy) the client address and scheme come
+// from X-Forwarded-* headers. Only trust them when configured, because a spoofed header would
+// otherwise defeat the per-address login limit.
+var trustProxy = builder.Configuration.GetValue("Proxy:TrustForwardedHeaders", false);
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// Session cookies survive a container restart when the keys live on a volume (see docker-compose.yml).
+if (builder.Configuration["DataProtection:KeysPath"] is { Length: > 0 } keysPath)
+{
+    builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keysPath)).SetApplicationName("JuDesk");
+}
 builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>();
 
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -50,6 +70,10 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+if (trustProxy)
+{
+    app.UseForwardedHeaders();
+}
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.Use(async (context, next) =>
@@ -97,7 +121,7 @@ using (var scope = app.Services.CreateScope())
 
     await DemoSeeder.SeedAsync(db, seed, app.Logger);
 
-    if (await setup.EnsureCodeAsync() is { } code)
+    if (await setup.IssueCodeIfNeededAsync() is { } code)
     {
         app.Logger.LogWarning("{Banner}", SetupService.Banner(code));
     }

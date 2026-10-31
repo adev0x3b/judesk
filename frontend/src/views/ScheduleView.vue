@@ -10,10 +10,12 @@ import TechnicianPanel from '@/components/TechnicianPanel.vue'
 import WeekGrid from '@/components/WeekGrid.vue'
 import { formatRange } from '@/lib/week'
 import { useScheduleStore } from '@/stores/schedule'
+import { useApiErrors } from '@/composables/useApiErrors'
 import { useToastStore } from '@/stores/toast'
 
 const schedule = useScheduleStore()
 const toast = useToastStore()
+const { fail } = useApiErrors()
 
 const sites = ref<Site[]>([])
 const skills = ref<Skill[]>([])
@@ -25,19 +27,13 @@ const dragging = computed(() => schedule.week?.technicians.find((t) => t.id === 
 
 onMounted(async () => {
   try {
-    const [w, s, k] = await Promise.all([schedule.load(), sitesApi.list(), skillsApi.list()])
-    void w
+    const [, s, k] = await Promise.all([schedule.load(), sitesApi.list(), skillsApi.list()])
     sites.value = s
     skills.value = k
   } catch (e) {
     fail(e)
   }
 })
-
-function fail(e: unknown) {
-  if (e instanceof ApiError) toast.error(e.title, e.detail ? [e.detail] : [])
-  else toast.error('Something went wrong', [String(e)])
-}
 
 async function onDrop(shiftId: string, technicianId: string) {
   schedule.draggingTechnicianId = null

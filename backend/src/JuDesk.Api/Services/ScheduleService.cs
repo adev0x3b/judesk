@@ -1,4 +1,3 @@
-using System.Data;
 using System.Globalization;
 using System.Text;
 using JuDesk.Api.Contracts;
@@ -79,10 +78,8 @@ public sealed class ScheduleService(AppDbContext db)
     /// inactive) can never be overridden; the weekly-hours limit can, when the planner says so.
     /// Runs serializable so two planners cannot overfill a slot at the same time.
     /// </summary>
-    public async Task<AssignmentDto?> AssignAsync(Guid shiftId, Guid technicianId, bool overrideHours, CancellationToken ct)
+    public Task<AssignmentDto?> AssignAsync(Guid shiftId, Guid technicianId, bool overrideHours, CancellationToken ct) => Serializable.RunAsync(db, async () =>
     {
-        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-
         var shift = await LoadShiftAsync(shiftId, tracking: true, ct);
         var technician = await db.Technicians.Include(t => t.Skills).FirstOrDefaultAsync(t => t.Id == technicianId, ct);
         if (shift is null || technician is null)
@@ -108,9 +105,8 @@ public sealed class ScheduleService(AppDbContext db)
         var assignment = new Assignment { ShiftId = shift.Id, TechnicianId = technician.Id, Technician = technician, Source = AssignmentSource.Manual };
         db.Assignments.Add(assignment);
         await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
-        return assignment.ToDto();
-    }
+        return (AssignmentDto?)assignment.ToDto();
+    }, ct);
 
     public async Task<bool> UnassignAsync(Guid shiftId, Guid assignmentId, CancellationToken ct)
     {
@@ -120,10 +116,8 @@ public sealed class ScheduleService(AppDbContext db)
         return deleted > 0;
     }
 
-    public async Task<AutoAssignResultDto> AutoAssignAsync(IsoWeek week, bool dryRun, CancellationToken ct)
+    public Task<AutoAssignResultDto> AutoAssignAsync(IsoWeek week, bool dryRun, CancellationToken ct) => Serializable.RunAsync(db, async () =>
     {
-        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-
         var shifts = await LoadWeekShiftsAsync(week, ct);
         var technicians = await db.Technicians.AsNoTracking().Include(t => t.Skills).Where(t => t.Active).ToListAsync(ct);
         var plan = AutoScheduler.Plan(shifts, technicians);
@@ -140,14 +134,12 @@ public sealed class ScheduleService(AppDbContext db)
             await db.SaveChangesAsync(ct);
         }
 
-        await tx.CommitAsync(ct);
-
         return new AutoAssignResultDto(
             dryRun ? 0 : plan.Assignments.Count,
             plan.Assignments.Select(p => new AssignmentPlanDto(p.ShiftId, p.TechnicianId, names[p.TechnicianId])).ToList(),
             plan.Unfilled.Select(u => new UnfilledSlotDto(u.ShiftId, u.Missing, u.Reason)).ToList(),
             dryRun);
-    }
+    }, ct);
 
     /// <summary>Removes every auto-generated assignment of the week; manual ones stay.</summary>
     public Task<int> ClearAutoAssignmentsAsync(IsoWeek week, CancellationToken ct) =>
@@ -191,8 +183,16 @@ public sealed class ScheduleService(AppDbContext db)
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Quotes a field when needed and neutralises spreadsheet formula injection: a cell starting
+    /// with =, +, -, @ or a tab would be evaluated by Excel and LibreOffice, so it gets a leading quote.
+    /// </summary>
     internal static string Csv(string value)
     {
+        if (value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\t' or '\r')
+        {
+            value = "'" + value;
+        }
         if (value.IndexOfAny(['"', ',', '\n', '\r']) < 0)
         {
             return value;

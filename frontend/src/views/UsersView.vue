@@ -5,10 +5,12 @@ import { ApiError } from '@/api/client'
 import type { CreateUserRequest, User } from '@/api/types'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useApiErrors } from '@/composables/useApiErrors'
 import { useToastStore } from '@/stores/toast'
 
 const auth = useAuthStore()
 const toast = useToastStore()
+const { fail } = useApiErrors()
 const users = ref<User[]>([])
 const creating = ref(false)
 const errors = ref<Record<string, string[]>>({})
@@ -19,11 +21,6 @@ async function load() {
 }
 
 onMounted(() => load().catch(fail))
-
-function fail(e: unknown) {
-  if (e instanceof ApiError) toast.error(e.title, e.detail ? [e.detail] : [])
-  else toast.error('Something went wrong')
-}
 
 async function save() {
   errors.value = {}
