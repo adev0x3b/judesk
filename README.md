@@ -45,11 +45,12 @@ The `api` service prints a one-time setup code in its log:
 
       ZML3-R379-9SWG
 
-  A new code: scripts/regen-setup-code.sh
+  The code changes on every restart.
+  A new one now: scripts/regen-setup-code.sh
 ==========================================================
 ```
 
-Open <http://localhost:8090>. Until an admin exists the app shows only the setup page: enter the code with your name, email and password and you are signed in. The code is printed again on every restart until setup is done; `scripts/regen-setup-code.sh` retires it and prints a new one.
+Open <http://localhost:8090>. Until an admin exists the app shows only the setup page: enter the code with your name, email and password and you are signed in. Only a hash of the code is stored, a fresh one is issued on every restart until setup is done, and five wrong guesses burn it; `scripts/regen-setup-code.sh` prints a new one without a restart.
 
 The database starts with a demo fleet (8 technicians, 4 sites, three weeks of shifts around today) so there is something to schedule. Swagger UI is at <http://localhost:8090/swagger>.
 
@@ -60,12 +61,18 @@ Copy [`.env.example`](.env.example) to `.env` to change the defaults.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `WEB_PORT` | `8090` | Host port of the web app. The API is only reachable through it. |
+| `WEB_BIND` | `127.0.0.1` | Address the port is published on. `0.0.0.0` opens it to the network. |
 | `DB_PASSWORD` | `judesk` | PostgreSQL password. |
 | `SEED_DEMO` | `true` | Seed the demo fleet on an empty database. |
 
 The API itself is configured through [`appsettings.json`](backend/src/JuDesk.Api/appsettings.json) and the usual ASP.NET Core environment variables (`ConnectionStrings__Default`, `Seed__Demo`, `Auth__LoginAttemptsPerMinute`).
 
-The compose defaults suit a local environment. Before exposing the app: put HTTPS termination in front of nginx, set `DB_PASSWORD`, turn `SEED_DEMO` off.
+The compose defaults suit a local environment. Before exposing the app:
+
+- put HTTPS termination in front of nginx (the auth cookie is only sent over the origin the browser sees, and nothing in the stack speaks TLS);
+- set `DB_PASSWORD` and turn `SEED_DEMO` off;
+- keep `WEB_BIND` on `127.0.0.1` when a reverse proxy or tunnel on the same host does the publishing;
+- the login limit is per client address and nginx passes the address it sees, so a proxy in front of nginx should be the only thing that reaches the port.
 
 ## Development
 
@@ -163,15 +170,15 @@ ASP.NET Core 8 (minimal API), Entity Framework Core 8, PostgreSQL 16, Vue 3, Typ
 - No default credentials: the first admin is created with a one-time setup code that the API prints only to its own log and retires on use. Passwords are hashed with PBKDF2 (`PasswordHasher`).
 - The session cookie is HttpOnly and SameSite=Strict. On every request the cookie's user is checked against the database, so a deleted user or a recreated database gets a clean 401 and the app shows "Your session has expired".
 - Login and setup are rate limited per client address (10 attempts a minute by default).
-- Responses carry `X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy`; the API container runs as a non-root user.
-- Data-protection keys live in the API container, so recreating it signs everyone out.
+- Responses carry a `Content-Security-Policy` (no inline scripts, same-origin only), `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy`; the API container runs as a non-root user.
+- Login compares against a dummy hash when the email is unknown, so timing does not reveal which accounts exist. Passwords are 8 to 128 characters.
+- CSV cells that a spreadsheet would run as a formula (`=`, `+`, `-`, `@`) are prefixed with `'`.
+- Session keys live on the `judesk-keys` volume (unencrypted, like the database volume next to it), so sessions survive `docker compose up --build`.
 - Not included: HTTPS (terminate it in front of nginx), password reset, audit log.
 
 ## CI
 
-[`ci.yml`](.github/workflows/ci.yml) runs the backend tests (Testcontainers needs Docker on the runner), the front-end lint, format check, type-check, unit tests and build, and the compose smoke test on the built images.
-
-The jobs currently run on a self-hosted runner. Before the repository goes public the workflow switches to `ubuntu-latest`.
+[`ci.yml`](.github/workflows/ci.yml) runs the backend tests (Testcontainers needs Docker on the runner), the front-end lint, format check, type-check, unit tests and build, and the compose smoke test on the built images. Actions are pinned to commit SHAs and Dependabot keeps them, the NuGet and npm packages and the base images current.
 
 ## License
 

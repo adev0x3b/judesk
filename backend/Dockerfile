@@ -11,8 +11,10 @@ RUN dotnet publish src/JuDesk.Api/JuDesk.Api.csproj -c Release -o /app --no-rest
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 COPY --from=build /app ./
-ENV ASPNETCORE_URLS=http://+:8080 \
-    DOTNET_EnableDiagnostics=0
+# Data-protection keys (session cookies) live here when DataProtection__KeysPath=/keys; compose mounts a volume.
+RUN mkdir /keys && chown app:app /keys
+# The base image already listens on 8080 (ASPNETCORE_HTTP_PORTS).
+ENV DOTNET_EnableDiagnostics=0
 EXPOSE 8080
 USER app
 # No curl in the runtime image: bash's /dev/tcp is enough for a health probe.
