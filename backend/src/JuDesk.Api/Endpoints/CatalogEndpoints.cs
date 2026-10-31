@@ -86,6 +86,21 @@ public static class CatalogEndpoints
             {
                 return Results.NotFound();
             }
+            var keptSkills = request.SkillIds?.ToHashSet() ?? [];
+            var removedSkillIds = technician.Skills.Select(s => s.Id).Where(s => !keptSkills.Contains(s)).ToList();
+            if (removedSkillIds.Count > 0)
+            {
+                var now = DateTime.UtcNow;
+                var stillNeeded = await db.Assignments
+                    .Where(a => a.TechnicianId == id && a.Shift!.EndsAt > now && removedSkillIds.Contains(a.Shift.RequiredSkillId))
+                    .Select(a => a.Shift!.RequiredSkill!.Name)
+                    .Distinct()
+                    .ToListAsync(ct);
+                if (stillNeeded.Count > 0)
+                {
+                    return Results.Conflict(new { title = $"Upcoming shifts still need {string.Join(", ", stillNeeded)}; unassign them before removing the skill." });
+                }
+            }
             await ApplyAsync(technician, request, db, ct);
             await db.SaveChangesAsync(ct);
             return Results.Ok(technician.ToDto());

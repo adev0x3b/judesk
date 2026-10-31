@@ -17,7 +17,16 @@ public static class AssignmentRules
     /// Every shift the technician is already assigned to in the ISO week that contains the target
     /// shift, excluding the target shift itself.
     /// </param>
-    public static IReadOnlyList<Violation> Check(Technician technician, Shift shift, IEnumerable<Shift> technicianShiftsInWeek)
+    public static IReadOnlyList<Violation> Check(Technician technician, Shift shift, IEnumerable<Shift> technicianShiftsInWeek) =>
+        Check(technician, shift, technicianShiftsInWeek, shift.Assignments.Count, shift.Assignments.Any(a => a.TechnicianId == technician.Id));
+
+    /// <summary>
+    /// Same check with the shift's occupancy given explicitly, for callers that plan several
+    /// assignments in memory before any of them is stored (the auto-scheduler).
+    /// </summary>
+    /// <param name="assignedCount">How many technicians are on the shift right now.</param>
+    /// <param name="alreadyAssigned">Whether this technician is one of them.</param>
+    public static IReadOnlyList<Violation> Check(Technician technician, Shift shift, IEnumerable<Shift> technicianShiftsInWeek, int assignedCount, bool alreadyAssigned)
     {
         var violations = new List<Violation>();
 
@@ -32,11 +41,11 @@ public static class AssignmentRules
             violations.Add(new Violation(ViolationCode.MissingSkill, $"{technician.FullName} does not have {skillName}."));
         }
 
-        if (shift.Assignments.Any(a => a.TechnicianId == technician.Id))
+        if (alreadyAssigned)
         {
             violations.Add(new Violation(ViolationCode.AlreadyAssigned, $"{technician.FullName} is already on this shift."));
         }
-        else if (shift.Assignments.Count >= shift.Headcount)
+        else if (assignedCount >= shift.Headcount)
         {
             violations.Add(new Violation(ViolationCode.ShiftFull, $"This shift already has {shift.Headcount} technician(s)."));
         }

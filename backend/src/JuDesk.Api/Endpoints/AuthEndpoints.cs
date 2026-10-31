@@ -18,17 +18,10 @@ public static class AuthEndpoints
     {
         var group = api.MapGroup("/auth").WithTags("Auth");
 
-        group.MapPost("/login", async (LoginRequest request, AppDbContext db, IPasswordHasher<User> hasher, HttpContext http, CancellationToken ct) =>
+        group.MapPost("/login", async (LoginRequest request, AppDbContext db, IPasswordHasher<User> hasher, HttpContext http, ILoggerFactory loggers, CancellationToken ct) =>
         {
-            var email = request.Email?.Trim().ToLowerInvariant() ?? string.Empty;
-            var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email, ct);
-            if (user is null || hasher.VerifyHashedPassword(user, user.PasswordHash, request.Password ?? string.Empty) == PasswordVerificationResult.Failed)
-            {
-                return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Invalid email or password.");
-            }
-
-            await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, user.ToPrincipal());
-            return Results.Ok(user.ToDto());
+            var logger = loggers.CreateLogger("JuDesk.Auth");
+            return await LoginAsync(request, db, hasher, http, logger, ct);
         })
         .AllowAnonymous()
         .RequireRateLimiting(LoginRateLimitPolicy)
@@ -49,6 +42,39 @@ public static class AuthEndpoints
         })
         .Produces<UserDto>();
 
+        MapUsers(api);
+        return api;
+    }
+
+    public const int MaxPasswordLength = 128;
+
+    private static readonly User DummyUser = new() { Email = "nobody@judesk.invalid", DisplayName = "nobody", PasswordHash = string.Empty };
+    private static readonly Lazy<string> DummyHash = new(() => new PasswordHasher<User>().HashPassword(DummyUser, Guid.NewGuid().ToString("N")));
+
+    private static async Task<IResult> LoginAsync(LoginRequest request, AppDbContext db, IPasswordHasher<User> hasher, HttpContext http, ILogger logger, CancellationToken ct)
+    {
+        var email = request.Email?.Trim().ToLowerInvariant() ?? string.Empty;
+        var password = request.Password ?? string.Empty;
+        if (email.Length > 200 || password.Length > MaxPasswordLength)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Invalid email or password.");
+        }
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email, ct);
+        // Verify against a dummy hash when the account does not exist, so the response time does
+        // not reveal which emails are registered.
+        var verified = hasher.VerifyHashedPassword(user ?? DummyUser, user?.PasswordHash ?? DummyHash.Value, password);
+        if (user is null || verified == PasswordVerificationResult.Failed)
+        {
+            logger.LogWarning("Failed login from {Address}", http.Connection.RemoteIpAddress);
+            return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Invalid email or password.");
+        }
+
+        await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, user.ToPrincipal());
+        return Results.Ok(user.ToDto());
+    }
+
+    private static void MapUsers(RouteGroupBuilder api)
+    {
         var users = api.MapGroup("/users").WithTags("Users").RequireAuthorization(CookieAuth.AdminPolicy);
 
         users.MapGet("/", async (AppDbContext db, CancellationToken ct) =>
@@ -61,7 +87,8 @@ public static class AuthEndpoints
                 .Require("email", email)
                 .Must("email", email.Contains('@'), "Must be an email address.")
                 .Require("displayName", request.DisplayName, 120)
-                .Must("password", request.Password?.Length >= 8, "Must be at least 8 characters.");
+                .Must("password", request.Password?.Length >= 8, "Must be at least 8 characters.")
+                .Must("password", request.Password?.Length <= MaxPasswordLength, $"Must be at most {MaxPasswordLength} characters.");
             if (v.Problem() is { } problem)
             {
                 return problem;
@@ -89,7 +116,5 @@ public static class AuthEndpoints
             var deleted = await db.Users.Where(u => u.Id == id).ExecuteDeleteAsync(ct);
             return deleted > 0 ? Results.NoContent() : Results.NotFound();
         });
-
-        return api;
     }
 }

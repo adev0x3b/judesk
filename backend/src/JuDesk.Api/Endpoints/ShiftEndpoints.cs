@@ -13,26 +13,27 @@ public static class ShiftEndpoints
     {
         var group = api.MapGroup("/shifts").WithTags("Shifts");
 
+        // At most a quarter per call: a week view asks /api/schedule/week, this is for exports and tools.
         group.MapGet("/", async (DateOnly? from, DateOnly? to, AppDbContext db, CancellationToken ct) =>
         {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            from ??= IsoWeek.Containing(today).Monday;
+            to ??= from.Value.AddDays(27);
+            if (to < from || to.Value.DayNumber - from.Value.DayNumber > 92)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["to"] = ["Must be after 'from' and within 92 days of it."] });
+            }
             var query = db.Shifts.AsNoTracking()
                 .Include(s => s.Site)
                 .Include(s => s.RequiredSkill)
                 .Include(s => s.Assignments).ThenInclude(a => a.Technician)
                 .AsQueryable();
-            if (from is { } f)
-            {
-                var start = f.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
-                query = query.Where(s => s.StartsAt >= start);
-            }
-            if (to is { } t)
-            {
-                var end = t.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
-                query = query.Where(s => s.StartsAt < end);
-            }
+            var start = from.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+            var end = to.Value.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+            query = query.Where(s => s.StartsAt >= start && s.StartsAt < end);
             var shifts = await query.OrderBy(s => s.StartsAt).ThenBy(s => s.Site!.Name).ToListAsync(ct);
-            return shifts.Select(s => s.ToDto()).ToList();
-        });
+            return Results.Ok(shifts.Select(s => s.ToDto()).ToList());
+        }).Produces<List<ShiftDto>>().ProducesValidationProblem();
 
         group.MapGet("/{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
         {

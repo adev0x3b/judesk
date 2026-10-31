@@ -42,12 +42,12 @@ public static class AutoScheduler
         var proposals = new List<ProposedAssignment>();
         var unfilled = new List<UnfilledSlot>();
 
-        IReadOnlyList<Violation> CheckFor(Technician t, Shift s)
-        {
-            var weekShiftsOfTech = assignedShiftIds[t.Id].Select(id => shiftsById[id]);
-            var snapshot = SnapshotWithCount(s, currentCount[s.Id], t.Id, assignedShiftIds[t.Id].Contains(s.Id));
-            return AssignmentRules.Check(t, snapshot, weekShiftsOfTech);
-        }
+        IReadOnlyList<Violation> CheckFor(Technician t, Shift s) =>
+            AssignmentRules.Check(
+                t, s,
+                assignedShiftIds[t.Id].Select(id => shiftsById[id]),
+                currentCount[s.Id],
+                assignedShiftIds[t.Id].Contains(s.Id));
 
         double HoursOf(Technician t) => assignedShiftIds[t.Id].Sum(id => shiftsById[id].Hours);
 
@@ -93,31 +93,6 @@ public static class AutoScheduler
         }
 
         return new SchedulePlan(proposals, unfilled);
-    }
-
-    private static Shift SnapshotWithCount(Shift shift, int count, Guid technicianId, bool alreadyAssigned)
-    {
-        var assignments = Enumerable.Range(0, count)
-            .Select(i => new Assignment
-            {
-                ShiftId = shift.Id,
-                // Only the candidate's own id matters to the rules; other slots get placeholder ids.
-                TechnicianId = alreadyAssigned && i == 0 ? technicianId : Guid.Empty,
-            })
-            .ToList();
-
-        return new Shift
-        {
-            Id = shift.Id,
-            SiteId = shift.SiteId,
-            Site = shift.Site,
-            StartsAt = shift.StartsAt,
-            EndsAt = shift.EndsAt,
-            RequiredSkillId = shift.RequiredSkillId,
-            RequiredSkill = shift.RequiredSkill,
-            Headcount = shift.Headcount,
-            Assignments = assignments,
-        };
     }
 
     private static string DescribeWhyUnfilled(
