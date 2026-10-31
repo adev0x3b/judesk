@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # End-to-end smoke test of a running compose stack: health, first-run setup with the printed code,
 # login, week view, rule-checked assignment, auto-assign, CSV export.
-# Usage: scripts/smoke.sh [base-url]   (default http://localhost:8090)
+# Usage: scripts/smoke.sh [base-url]   (default http://127.0.0.1:8090)
 # The setup code is read from `docker compose logs api` unless SETUP_CODE is set.
 set -euo pipefail
 
-BASE="${1:-http://localhost:8090}"
+BASE="${1:-http://127.0.0.1:8090}"
 EMAIL="${ADMIN_EMAIL:-smoke@judesk.local}"
 PASSWORD="${ADMIN_PASSWORD:-Smoke-Pass-1}"
 JAR="$(mktemp)"

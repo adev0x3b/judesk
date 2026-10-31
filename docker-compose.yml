@@ -3,6 +3,7 @@
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: judesk
       POSTGRES_USER: judesk
@@ -17,20 +18,29 @@ services:
 
   api:
     build: ./backend
+    restart: unless-stopped
     environment:
       ConnectionStrings__Default: Host=db;Port=5432;Database=judesk;Username=judesk;Password=${DB_PASSWORD:-judesk}
       Seed__Demo: ${SEED_DEMO:-true}
+      # nginx is the only thing that can reach the api container, so its X-Forwarded-* headers are trusted.
+      Proxy__TrustForwardedHeaders: "true"
+      DataProtection__KeysPath: /keys
+    volumes:
+      - judesk-keys:/keys
     depends_on:
       db:
         condition: service_healthy
 
   web:
     build: ./frontend
+    restart: unless-stopped
     ports:
-      - "${WEB_PORT:-8090}:80"
+      # Loopback only by default; set WEB_BIND=0.0.0.0 to reach it from other machines.
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8090}:80"
     depends_on:
       api:
         condition: service_healthy
 
 volumes:
   judesk-db:
+  judesk-keys:
