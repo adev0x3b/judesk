@@ -71,7 +71,7 @@ The compose defaults suit a local environment. Before exposing the app:
 
 - put HTTPS termination in front of nginx (the auth cookie is only sent over the origin the browser sees, and nothing in the stack speaks TLS);
 - set `DB_PASSWORD` and turn `SEED_DEMO` off;
-- keep `WEB_BIND` on `127.0.0.1` when a reverse proxy or tunnel on the same host does the publishing;
+- `WEB_BIND` is `127.0.0.1` so nothing outside the machine sees the port by accident. To reach the app from a phone on the same LAN or tailnet, set `WEB_BIND=0.0.0.0` (or the address of that interface; Docker Desktop only binds addresses Windows owns, so `0.0.0.0` is the safe pick there) and keep the firewall in mind. Leave it on loopback when a reverse proxy or tunnel on the same host does the publishing;
 - the login limit is per client address and nginx passes the address it sees, so a proxy in front of nginx should be the only thing that reaches the port.
 
 ## Development
