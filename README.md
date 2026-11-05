@@ -178,7 +178,7 @@ docker-compose.yml        db (PostgreSQL 16), api, web (nginx serving the build 
 
 ## Built with
 
-ASP.NET Core 8 (minimal API), Entity Framework Core 8, PostgreSQL 16, Vue 3, TypeScript, Vite, Pinia, xUnit, Testcontainers, Vitest, Docker Compose, nginx.
+ASP.NET Core 10 (minimal API), Entity Framework Core 10, PostgreSQL 16, Vue 3, TypeScript, Vite, Pinia, xUnit, Testcontainers, Vitest, Docker Compose, nginx.
 
 ## Security
 

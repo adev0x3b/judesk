@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY src/JuDesk.Domain/JuDesk.Domain.csproj src/JuDesk.Domain/
 COPY src/JuDesk.Api/JuDesk.Api.csproj src/JuDesk.Api/
@@ -7,7 +7,7 @@ RUN dotnet restore src/JuDesk.Api/JuDesk.Api.csproj
 COPY src/ src/
 RUN dotnet publish src/JuDesk.Api/JuDesk.Api.csproj -c Release -o /app --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app ./
 # Data-protection keys (session cookies) live here when DataProtection__KeysPath=/keys; compose mounts a volume.
