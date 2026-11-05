@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import type { AutoAssignResult, Shift } from '@/api/types'
 import { formatDay, dateOf, timeOf } from '@/lib/week'
+import { useConfigStore } from '@/stores/config'
 import ModalDialog from './ModalDialog.vue'
 
 const props = defineProps<{
@@ -10,12 +11,15 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ close: []; apply: [] }>()
 
+const config = useConfigStore()
 const result = ref<AutoAssignResult | null>(null)
 const error = ref<string | null>(null)
 
 function describe(shiftId: string) {
   const s = props.shifts.find((x) => x.id === shiftId)
-  return s ? `${formatDay(dateOf(s.startsAt))} ${timeOf(s.startsAt)} · ${s.siteName} · ${s.requiredSkillName}` : shiftId
+  return s
+    ? `${formatDay(dateOf(s.startsAt, config.timeZone))} ${timeOf(s.startsAt, config.timeZone)} · ${s.siteName} · ${s.requiredSkillName}`
+    : shiftId
 }
 
 onMounted(async () => {

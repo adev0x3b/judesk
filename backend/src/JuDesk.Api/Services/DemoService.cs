@@ -33,7 +33,7 @@ public sealed class DemoState
 /// (its password is random and never shown), and <see cref="ResetAsync"/> puts the fleet back to the
 /// seed. Accounts are kept across resets, so the admin created at setup and the demo planner survive.
 /// </summary>
-public sealed class DemoService(AppDbContext db, IPasswordHasher<User> hasher, IOptions<DemoOptions> options, DemoState state, ILogger<DemoService> logger)
+public sealed class DemoService(AppDbContext db, IPasswordHasher<User> hasher, IOptions<DemoOptions> options, DemoState state, InstallationZone zone, ILogger<DemoService> logger)
 {
     public const string DemoEmail = "demo@judesk.local";
 
@@ -97,7 +97,7 @@ public sealed class DemoService(AppDbContext db, IPasswordHasher<User> hasher, I
             await db.Technicians.ExecuteDeleteAsync(ct);
             await db.Sites.ExecuteDeleteAsync(ct);
             await db.Skills.ExecuteDeleteAsync(ct);
-            await DemoSeeder.SeedAsync(db, new SeedOptions { Demo = true }, logger, ct, force: true);
+            await DemoSeeder.SeedAsync(db, new SeedOptions { Demo = true }, zone.Zone, logger, ct, force: true);
             return true;
         }, ct);
         logger.LogInformation("Demo data reset");

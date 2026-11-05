@@ -49,7 +49,7 @@ public class SetupTests(ApiFixture fixture) : IAsyncLifetime
     {
         var client = _factory.CreateClient();
 
-        var response = await client.PostAsJsonAsync("/api/setup", new SetupRequest("AAAA-AAAA-AAAA", "boss@test.local", "Boss", "Boss-Pass-1"));
+        var response = await client.PostAsJsonAsync("/api/setup", new SetupRequest("AAAA-AAAA-AAAA", "boss@test.local", "Boss", "Lantern-Quiet-41"));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.False(response.Headers.Contains("Set-Cookie"));
@@ -64,18 +64,18 @@ public class SetupTests(ApiFixture fixture) : IAsyncLifetime
 
         for (var i = 0; i < SetupCode.MaxFailedAttempts; i++)
         {
-            var guess = await client.PostAsJsonAsync("/api/setup", new SetupRequest("ZZZZ-ZZZZ-ZZZZ", "boss@test.local", "Boss", "Boss-Pass-1"));
+            var guess = await client.PostAsJsonAsync("/api/setup", new SetupRequest("ZZZZ-ZZZZ-ZZZZ", "boss@test.local", "Boss", "Lantern-Quiet-41"));
             Assert.Equal(HttpStatusCode.Forbidden, guess.StatusCode);
         }
 
         // The right code no longer works either: the row is gone, not just locked.
-        var burnt = await client.PostAsJsonAsync("/api/setup", new SetupRequest(code, "boss@test.local", "Boss", "Boss-Pass-1"));
+        var burnt = await client.PostAsJsonAsync("/api/setup", new SetupRequest(code, "boss@test.local", "Boss", "Lantern-Quiet-41"));
         Assert.Equal(HttpStatusCode.Forbidden, burnt.StatusCode);
         Assert.Contains("No setup code", await burnt.Content.ReadAsStringAsync());
         Assert.True((await client.GetFromJsonAsync<SetupStatusDto>("/api/setup/status"))!.NeedsSetup);
 
         var fresh = await ApiFixture.IssueSetupCodeAsync(_factory);
-        var ok = await client.PostAsJsonAsync("/api/setup", new SetupRequest(fresh!, "boss@test.local", "Boss", "Boss-Pass-1"));
+        var ok = await client.PostAsJsonAsync("/api/setup", new SetupRequest(fresh!, "boss@test.local", "Boss", "Lantern-Quiet-41"));
         Assert.Equal(HttpStatusCode.Created, ok.StatusCode);
     }
 
@@ -105,10 +105,10 @@ public class SetupTests(ApiFixture fixture) : IAsyncLifetime
         }
         Assert.NotEqual(old, fresh);
 
-        var stale = await client.PostAsJsonAsync("/api/setup", new SetupRequest(old, "boss@test.local", "Boss", "Boss-Pass-1"));
+        var stale = await client.PostAsJsonAsync("/api/setup", new SetupRequest(old, "boss@test.local", "Boss", "Lantern-Quiet-41"));
         Assert.Equal(HttpStatusCode.Forbidden, stale.StatusCode);
 
-        var ok = await client.PostAsJsonAsync("/api/setup", new SetupRequest(fresh!.ToLowerInvariant(), "boss@test.local", "Boss", "Boss-Pass-1"));
+        var ok = await client.PostAsJsonAsync("/api/setup", new SetupRequest(fresh!.ToLowerInvariant(), "boss@test.local", "Boss", "Lantern-Quiet-41"));
         Assert.Equal(HttpStatusCode.Created, ok.StatusCode);
     }
 
@@ -118,7 +118,7 @@ public class SetupTests(ApiFixture fixture) : IAsyncLifetime
         var client = _factory.CreateClient();
         var code = await ApiFixture.IssueSetupCodeAsync(_factory);
 
-        var response = await client.PostAsJsonAsync("/api/setup", new SetupRequest(code, "Boss@Test.local", "Boss", "Boss-Pass-1"));
+        var response = await client.PostAsJsonAsync("/api/setup", new SetupRequest(code, "Boss@Test.local", "Boss", "Lantern-Quiet-41"));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var admin = await response.Content.ReadFromJsonAsync<UserDto>();
@@ -131,11 +131,11 @@ public class SetupTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Null(await ApiFixture.IssueSetupCodeAsync(_factory));
 
         // A second setup, even with the right code, is refused: there is only ever one first admin.
-        var again = await client.PostAsJsonAsync("/api/setup", new SetupRequest(code, "other@test.local", "Other", "Other-Pass-1"));
+        var again = await client.PostAsJsonAsync("/api/setup", new SetupRequest(code, "other@test.local", "Other", "Harbor-Violet-58"));
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
 
         var anonymous = _factory.CreateClient();
-        var login = await anonymous.PostAsJsonAsync("/api/auth/login", new LoginRequest("boss@test.local", "Boss-Pass-1"));
+        var login = await anonymous.PostAsJsonAsync("/api/auth/login", new LoginRequest("boss@test.local", "Lantern-Quiet-41"));
         Assert.Equal(HttpStatusCode.OK, login.StatusCode);
     }
 

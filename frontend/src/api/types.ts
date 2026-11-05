@@ -1,4 +1,5 @@
-// Mirrors backend/src/JuDesk.Api/Contracts/Dtos.cs. Dates are ISO-8601 UTC strings.
+// Mirrors backend/src/JuDesk.Api/Contracts/Dtos.cs. Instants are ISO-8601 UTC strings; week dates are plain YYYY-MM-DD
+// interpreted in the installation's time zone (see AppConfig).
 
 export type UserRole = 'Planner' | 'Admin'
 export type AssignmentSource = 'Manual' | 'Auto'
@@ -7,6 +8,12 @@ export type ViolationCode =
 
 export interface SetupStatus {
   needsSetup: boolean
+}
+
+/** Public installation settings (GET /api/config). `timeZone` is an IANA id; every wall-clock time the user sees is in it. */
+export interface AppConfig {
+  timeZone: string
+  passwordMinLength: number
 }
 
 export interface DemoStatus {
@@ -27,6 +34,8 @@ export interface User {
   email: string
   displayName: string
   role: UserRole
+  /** True only for the shared demo account, which cannot change its password. */
+  isDemo: boolean
 }
 
 export interface Skill {

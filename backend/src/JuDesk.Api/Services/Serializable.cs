@@ -26,7 +26,7 @@ public static class Serializable
             }
             catch (Exception e) when (attempt < Attempts && IsSerializationFailure(e))
             {
-                await tx.RollbackAsync(ct);
+                // PostgreSQL has already ended the transaction; disposing it is all that is left.
                 db.ChangeTracker.Clear();
             }
         }

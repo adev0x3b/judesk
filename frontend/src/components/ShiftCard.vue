@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { Shift, TechnicianLoad } from '@/api/types'
 import { timeOf } from '@/lib/week'
+import { useConfigStore } from '@/stores/config'
 
 const props = defineProps<{
   shift: Shift
@@ -15,11 +16,14 @@ const emit = defineEmits<{
   drop: [shiftId: string, technicianId: string]
 }>()
 
+const config = useConfigStore()
+const time = (iso: string) => timeOf(iso, config.timeZone)
+
 const open = computed(() => Math.max(0, props.shift.headcount - props.shift.assignments.length))
 const label = computed(() => {
   const s = props.shift
   const assigned = s.assignments.length ? `assigned ${s.assignments.map((a) => a.technicianName).join(', ')}` : 'nobody assigned'
-  return `${s.siteName} ${timeOf(s.startsAt)} to ${timeOf(s.endsAt)}, ${s.requiredSkillName}, ${assigned}, ${open.value} open`
+  return `${s.siteName} ${time(s.startsAt)} to ${time(s.endsAt)}, ${s.requiredSkillName}, ${assigned}, ${open.value} open`
 })
 const slots = computed(() => [
   ...props.shift.assignments.map((a) => ({ key: a.id, name: a.technicianName, source: a.source })),
@@ -58,7 +62,7 @@ function onDrop(event: DragEvent) {
     @drop.prevent="onDrop"
   >
     <header class="shift-head">
-      <span class="time">{{ timeOf(shift.startsAt) }}–{{ timeOf(shift.endsAt) }}</span>
+      <span class="time">{{ time(shift.startsAt) }}–{{ time(shift.endsAt) }}</span>
       <span class="hours faint">{{ shift.hours }} h</span>
     </header>
     <div class="site" :title="shift.siteName">{{ shift.siteName }}</div>

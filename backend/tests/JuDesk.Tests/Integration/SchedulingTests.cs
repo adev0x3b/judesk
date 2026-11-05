@@ -294,4 +294,47 @@ public class SchedulingTests(ApiFixture fixture)
         var created = await client.PostAsJsonAsync("/api/shifts", new ShiftRequest(site.Id, offsetDate, offsetDate.AddHours(2), skill.Id, 1, null));
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
     }
+
+    [Fact]
+    public async Task Parallel_assigns_never_overfill_a_shift()
+    {
+        var client = await fixture.AdminClientAsync();
+        var monday = FreshMonday();
+        var skill = await client.CreateSkillAsync();
+        var site = await client.CreateSiteAsync();
+        var shift = await client.CreateShiftAsync(site.Id, skill.Id, monday.AddHours(8), 8, headcount: 2);
+        var techs = new List<TechnicianDto>();
+        for (var i = 0; i < 6; i++)
+        {
+            techs.Add(await client.CreateTechnicianAsync($"Racer {i}", 40, true, skill.Id));
+        }
+
+        // Six planners click at the same moment; serializable transactions let exactly two through.
+        var responses = await Task.WhenAll(techs.Select(async t => await (await fixture.AdminClientAsync()).AssignAsync(shift.Id, t.Id)));
+
+        Assert.Equal(2, responses.Count(r => r.StatusCode == HttpStatusCode.Created));
+        Assert.All(responses.Where(r => r.StatusCode != HttpStatusCode.Created), r => Assert.Equal(HttpStatusCode.Conflict, r.StatusCode));
+        var week = await client.WeekAsync(DateOnly.FromDateTime(monday));
+        Assert.Equal(2, week.Shifts.Single(s => s.Id == shift.Id).Assignments.Count);
+    }
+
+    [Fact]
+    public async Task Parallel_assigns_never_double_book_a_technician()
+    {
+        var client = await fixture.AdminClientAsync();
+        var monday = FreshMonday();
+        var skill = await client.CreateSkillAsync();
+        var siteA = await client.CreateSiteAsync();
+        var siteB = await client.CreateSiteAsync();
+        var tech = await client.CreateTechnicianAsync("Only One", 40, true, skill.Id);
+        var morning = await client.CreateShiftAsync(siteA.Id, skill.Id, monday.AddHours(8), 8);
+        var overlapping = await client.CreateShiftAsync(siteB.Id, skill.Id, monday.AddHours(10), 8);
+
+        var responses = await Task.WhenAll(
+            Task.Run(async () => await (await fixture.AdminClientAsync()).AssignAsync(morning.Id, tech.Id)),
+            Task.Run(async () => await (await fixture.AdminClientAsync()).AssignAsync(overlapping.Id, tech.Id)));
+
+        Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Created);
+        Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Conflict);
+    }
 }

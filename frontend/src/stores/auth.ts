@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { authApi, demoApi, setupApi } from '@/api'
 import { ApiError, setUnauthorizedHandler } from '@/api/client'
 import type { DemoStatus, User } from '@/api/types'
+import { useConfigStore } from '@/stores/config'
 import { useScheduleStore } from '@/stores/schedule'
 import { useToastStore } from '@/stores/toast'
 
@@ -24,11 +25,12 @@ export const useAuthStore = defineStore('auth', () => {
   /**
    * Restores the session from the cookie on first load, after checking whether setup is still pending.
    * Leaves `checked` unset when the API could not be reached, so a later call tries again.
+   * The public config (time zone, password rules) is fetched alongside; it never fails the restore.
    */
   async function restore() {
     if (checked.value) return
     try {
-      const [setup, demoStatus] = await Promise.all([setupApi.status(), demoApi.status()])
+      const [setup, demoStatus] = await Promise.all([setupApi.status(), demoApi.status(), useConfigStore().load()])
       demo.value = demoStatus
       needsSetup.value = setup.needsSetup
       user.value = needsSetup.value ? null : await authApi.me()

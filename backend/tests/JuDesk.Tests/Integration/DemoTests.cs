@@ -30,7 +30,7 @@ public class DemoTests(ApiFixture fixture) : IAsyncLifetime
         // Until the owner has created the admin, the demo login is refused: otherwise the planner it
         // creates would count as "an account exists" and lock the setup page forever.
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsync("/api/auth/demo", null)).StatusCode);
-        await ApiFixture.CompleteSetupAsync(_factory, "owner@test.local", "Owner-Pass-1");
+        await ApiFixture.CompleteSetupAsync(_factory, "owner@test.local", "Maple-Station-62");
     }
 
     public async Task DisposeAsync() => await _factory.DisposeAsync();
@@ -101,7 +101,7 @@ public class DemoTests(ApiFixture fixture) : IAsyncLifetime
         Assert.DoesNotContain(skills!, s => s.Id == skill.Id);
         // Still signed in: the demo planner survived the reset.
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/auth/me")).StatusCode);
-        var login = await _factory.CreateClient().PostAsJsonAsync("/api/auth/login", new LoginRequest("owner@test.local", "Owner-Pass-1"));
+        var login = await _factory.CreateClient().PostAsJsonAsync("/api/auth/login", new LoginRequest("owner@test.local", "Maple-Station-62"));
         Assert.Equal(HttpStatusCode.OK, login.StatusCode);
     }
 }

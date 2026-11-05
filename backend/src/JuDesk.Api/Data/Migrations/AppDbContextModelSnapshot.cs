@@ -17,7 +17,7 @@ namespace JuDesk.Api.Data.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.32")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -225,6 +225,28 @@ namespace JuDesk.Api.Data.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("JuDesk.Domain.Entities.UserSession", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("UserSessions");
+                });
+
             modelBuilder.Entity("TechnicianSkills", b =>
                 {
                     b.Property<Guid>("SkillsId")
@@ -276,6 +298,17 @@ namespace JuDesk.Api.Data.Migrations
                     b.Navigation("RequiredSkill");
 
                     b.Navigation("Site");
+                });
+
+            modelBuilder.Entity("JuDesk.Domain.Entities.UserSession", b =>
+                {
+                    b.HasOne("JuDesk.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("TechnicianSkills", b =>

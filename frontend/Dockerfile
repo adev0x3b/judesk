@@ -7,7 +7,9 @@ COPY . .
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.31-alpine AS runtime
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Rendered into conf.d/default.conf by the image's entrypoint (envsubst on defined variables only).
+ENV TRUST_FORWARDED_PROTO=false
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY security-headers.conf /etc/nginx/security-headers.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 8080

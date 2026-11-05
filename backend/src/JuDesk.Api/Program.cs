@@ -20,6 +20,11 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.Configure<SeedOptions>(builder.Configuration.GetSection(SeedOptions.Section));
 builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<ScheduleService>();
+// Fails at startup on an unknown zone id rather than on the first request.
+var zone = new InstallationZone(builder.Configuration.GetValue("Schedule:TimeZone", "Europe/Rome")!);
+builder.Services.AddSingleton(zone);
+builder.Services.AddScoped<Sessions>();
+builder.Services.AddSingleton<LoginThrottle>();
 builder.Services.AddScoped<SetupService>();
 builder.Services.Configure<DemoOptions>(builder.Configuration.GetSection(DemoOptions.Section));
 builder.Services.AddSingleton<DemoState>();
@@ -29,6 +34,7 @@ if (builder.Configuration.GetValue("Demo:Mode", false))
     builder.Services.AddHostedService<DemoResetService>();
 }
 builder.Services.AddJuDeskAuth();
+builder.Services.AddExceptionHandler<BadRequestHandler>();
 builder.Services.AddExceptionHandler<DbConflictHandler>();
 builder.Services.AddProblemDetails();
 
@@ -53,11 +59,13 @@ if (builder.Configuration["DataProtection:KeysPath"] is { Length: > 0 } keysPath
 }
 builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>();
 
+// Enums travel by name only: "role": 7 would otherwise bind to an undefined value and be stored.
 builder.Services.ConfigureHttpJsonOptions(options =>
-    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
 
-// Brute-force protection on login (a small fixed window per client address), a wider window on
-// everything else, and a few auto-assign runs at a time: one busy client cannot stall the rest.
+// Brute-force protection on login (a small fixed window per client address; LoginThrottle adds a
+// per-account lockout), a wider window on everything else, and a few auto-assign runs at a time per
+// address: one client looping on the planner cannot stall it for everyone else.
 var loginAttemptsPerMinute = builder.Configuration.GetValue("Auth:LoginAttemptsPerMinute", 10);
 var requestsPerMinute = builder.Configuration.GetValue("RateLimits:RequestsPerMinute", 300);
 var heavyConcurrency = builder.Configuration.GetValue("RateLimits:HeavyConcurrency", 2);
@@ -72,12 +80,15 @@ builder.Services.AddRateLimiter(options =>
         RateLimitPartition.GetFixedWindowLimiter(
             http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new FixedWindowRateLimiterOptions { PermitLimit = requestsPerMinute, Window = TimeSpan.FromMinutes(1) }));
-    options.AddConcurrencyLimiter(RateLimits.HeavyPolicy, o =>
-    {
-        o.PermitLimit = heavyConcurrency;
-        o.QueueLimit = heavyConcurrency * 2;
-        o.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-    });
+    options.AddPolicy(RateLimits.HeavyPolicy, http =>
+        RateLimitPartition.GetConcurrencyLimiter(
+            http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new ConcurrencyLimiterOptions
+            {
+                PermitLimit = heavyConcurrency,
+                QueueLimit = heavyConcurrency * 2,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            }));
 });
 
 builder.Services.AddEndpointsApiExplorer();
@@ -111,8 +122,8 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Swagger UI is on by default so the API is browsable; Swagger:Enabled=false hides it on a public site.
-if (builder.Configuration.GetValue("Swagger:Enabled", true))
+// Swagger UI maps the whole API, so it is off unless asked for (Swagger:Enabled, SWAGGER_ENABLED).
+if (builder.Configuration.GetValue("Swagger:Enabled", false))
 {
     app.UseSwagger();
     app.UseSwaggerUI(options => options.SwaggerEndpoint("/swagger/v1/swagger.json", "JuDesk API v1"));
@@ -146,7 +157,9 @@ using (var scope = app.Services.CreateScope())
         return;
     }
 
-    await DemoSeeder.SeedAsync(db, seed, app.Logger);
+    // The public demo always starts from the sample fleet; otherwise it is opt-in (Seed:Demo).
+    var demoMode = app.Configuration.GetValue("Demo:Mode", false);
+    await DemoSeeder.SeedAsync(db, new SeedOptions { Demo = seed.Demo || demoMode }, zone.Zone, app.Logger);
 
     if (await setup.IssueCodeIfNeededAsync() is { } code)
     {

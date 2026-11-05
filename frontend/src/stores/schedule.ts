@@ -3,11 +3,16 @@ import { computed, ref } from 'vue'
 import { scheduleApi, shiftsApi } from '@/api'
 import { ApiError } from '@/api/client'
 import type { AutoAssignResult, Shift, ShiftRequest, WeekSchedule } from '@/api/types'
-import { addDays, isoDate, mondayOf, weekDays } from '@/lib/week'
+import { addDays, dateOf, mondayOf, weekDays } from '@/lib/week'
+import { useConfigStore } from '@/stores/config'
 
 /** The week on screen and every action that changes it. Each mutation reloads the week from the API. */
 export const useScheduleStore = defineStore('schedule', () => {
-  const weekStart = ref(isoDate(mondayOf(new Date())))
+  const config = useConfigStore()
+  /** The Monday of the current week, as the installation's time zone sees it. */
+  const currentMonday = () => mondayOf(new Date(), config.timeZone)
+
+  const weekStart = ref(currentMonday())
   const week = ref<WeekSchedule | null>(null)
   const loading = ref(false)
   const siteFilter = ref<string | null>(null)
@@ -23,7 +28,7 @@ export const useScheduleStore = defineStore('schedule', () => {
   const shiftsByDay = computed(() => {
     const map = new Map<string, Shift[]>(days.value.map((d) => [d, []]))
     for (const shift of visibleShifts.value) {
-      map.get(shift.startsAt.slice(0, 10))?.push(shift)
+      map.get(dateOf(shift.startsAt, config.timeZone))?.push(shift)
     }
     return map
   })
@@ -54,7 +59,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     siteFilter.value = null
     selectedShiftId.value = null
     draggingTechnicianId.value = null
-    weekStart.value = isoDate(mondayOf(new Date()))
+    weekStart.value = currentMonday()
   }
 
   function goTo(start: string) {
@@ -62,9 +67,9 @@ export const useScheduleStore = defineStore('schedule', () => {
     return load()
   }
 
-  const nextWeek = () => goTo(isoDate(addDays(new Date(`${weekStart.value}T00:00:00Z`), 7)))
-  const previousWeek = () => goTo(isoDate(addDays(new Date(`${weekStart.value}T00:00:00Z`), -7)))
-  const thisWeek = () => goTo(isoDate(mondayOf(new Date())))
+  const nextWeek = () => goTo(addDays(weekStart.value, 7))
+  const previousWeek = () => goTo(addDays(weekStart.value, -7))
+  const thisWeek = () => goTo(currentMonday())
 
   function select(shiftId: string | null) {
     selectedShiftId.value = shiftId

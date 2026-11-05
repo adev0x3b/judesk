@@ -12,6 +12,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Shift> Shifts => Set<Shift>();
     public DbSet<Assignment> Assignments => Set<Assignment>();
     public DbSet<SetupCode> SetupCodes => Set<SetupCode>();
+    public DbSet<UserSession> UserSessions => Set<UserSession>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -57,6 +58,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.ToTable(t => t.HasCheckConstraint("ck_shift_headcount", "\"Headcount\" >= 1"));
             e.Ignore(s => s.Duration);
             e.Ignore(s => s.Hours);
+        });
+
+        modelBuilder.Entity<UserSession>(e =>
+        {
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.HasIndex(x => x.UserId);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<SetupCode>(e =>

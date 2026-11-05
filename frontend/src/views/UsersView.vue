@@ -5,10 +5,12 @@ import { ApiError } from '@/api/client'
 import type { CreateUserRequest, User } from '@/api/types'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useConfigStore } from '@/stores/config'
 import { useApiErrors } from '@/composables/useApiErrors'
 import { useToastStore } from '@/stores/toast'
 
 const auth = useAuthStore()
+const config = useConfigStore()
 const toast = useToastStore()
 const { fail } = useApiErrors()
 const users = ref<User[]>([])
@@ -62,6 +64,52 @@ async function save() {
   }
 }
 
+/** The user whose password an admin is resetting, or null while that dialog is closed. */
+const resetting = ref<User | null>(null)
+const resetForm = reactive({ newPassword: '', confirm: '' })
+const resetErrors = ref<Record<string, string[]>>({})
+const resetBusy = ref(false)
+const resetOtherError = computed(() => {
+  const key = Object.keys(resetErrors.value).find((k) => k !== 'newPassword' && k !== 'confirm')
+  return key ? resetErrors.value[key]?.[0] : undefined
+})
+
+function openReset(u: User) {
+  Object.assign(resetForm, { newPassword: '', confirm: '' })
+  resetErrors.value = {}
+  resetting.value = u
+}
+
+function cancelReset() {
+  Object.assign(resetForm, { newPassword: '', confirm: '' })
+  resetErrors.value = {}
+  resetting.value = null
+}
+
+async function resetPassword() {
+  if (!resetting.value) return
+  resetErrors.value = {}
+  if (resetForm.newPassword.length < config.passwordMinLength) {
+    resetErrors.value = { newPassword: [`Use at least ${config.passwordMinLength} characters.`] }
+    return
+  }
+  if (resetForm.confirm !== resetForm.newPassword) {
+    resetErrors.value = { confirm: ['The passwords do not match.'] }
+    return
+  }
+  resetBusy.value = true
+  try {
+    await usersApi.resetPassword(resetting.value.id, resetForm.newPassword)
+    cancelReset()
+    toast.success('Password reset; they are signed out everywhere')
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 400) resetErrors.value = e.errors
+    else fail(e)
+  } finally {
+    resetBusy.value = false
+  }
+}
+
 async function remove(u: User) {
   if (!window.confirm(`Delete the account ${u.email}?`)) return
   try {
@@ -100,6 +148,9 @@ async function remove(u: User) {
               <span class="chip" :class="u.role === 'Admin' ? 'chip-accent' : ''">{{ u.role }}</span>
             </td>
             <td class="actions">
+              <button v-if="u.id !== auth.user?.id && !u.isDemo" class="btn btn-sm btn-ghost" @click="openReset(u)">
+                Reset password
+              </button>
               <button v-if="u.id !== auth.user?.id" class="btn btn-sm btn-ghost" @click="remove(u)">Delete</button>
             </td>
           </tr>
@@ -127,10 +178,11 @@ async function remove(u: User) {
             class="input"
             type="password"
             required
-            minlength="8"
+            :minlength="config.passwordMinLength"
             autocomplete="new-password"
           />
           <span v-if="errors.password" class="field-error">{{ errors.password[0] }}</span>
+          <span v-else class="faint">At least {{ config.passwordMinLength }} characters.</span>
         </div>
         <div class="field">
           <label for="role">Role</label>
@@ -146,11 +198,59 @@ async function remove(u: User) {
         </div>
       </form>
     </ModalDialog>
+
+    <ModalDialog v-if="resetting" :title="`Reset password for ${resetting.displayName}`" @close="cancelReset">
+      <form @submit.prevent="resetPassword">
+        <p class="muted reset-hint">{{ resetting.email }} is signed out everywhere and signs in with the new password.</p>
+        <div class="field">
+          <label for="reset-password">New password</label>
+          <input
+            id="reset-password"
+            v-model="resetForm.newPassword"
+            class="input"
+            type="password"
+            required
+            :minlength="config.passwordMinLength"
+            autocomplete="new-password"
+            autofocus
+            :aria-invalid="!!resetErrors.newPassword"
+          />
+          <span v-if="resetErrors.newPassword" class="field-error">{{ resetErrors.newPassword[0] }}</span>
+          <span v-else class="faint">At least {{ config.passwordMinLength }} characters.</span>
+        </div>
+        <div class="field">
+          <label for="reset-confirm">Confirm new password</label>
+          <input
+            id="reset-confirm"
+            v-model="resetForm.confirm"
+            class="input"
+            type="password"
+            required
+            autocomplete="new-password"
+            :aria-invalid="!!resetErrors.confirm"
+          />
+          <span v-if="resetErrors.confirm" class="field-error">{{ resetErrors.confirm[0] }}</span>
+        </div>
+        <p v-if="resetOtherError" class="field-error" role="alert">{{ resetOtherError }}</p>
+        <div class="modal-actions">
+          <button type="button" class="btn" @click="cancelReset">Cancel</button>
+          <button type="submit" class="btn btn-primary" :disabled="resetBusy">
+            {{ resetBusy ? 'Resetting…' : 'Reset password' }}
+          </button>
+        </div>
+      </form>
+    </ModalDialog>
   </div>
 </template>
 
 <style scoped>
 .actions {
   text-align: right;
+  white-space: nowrap;
+}
+
+.reset-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
 }
 </style>

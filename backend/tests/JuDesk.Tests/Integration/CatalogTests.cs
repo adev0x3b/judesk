@@ -111,5 +111,32 @@ public class CatalogTests(ApiFixture fixture)
         Assert.Equal(HttpStatusCode.BadRequest, sneaky.StatusCode);
     }
 
-    private sealed record ValidationProblem(Dictionary<string, string[]> Errors);
+[Fact]
+    public async Task Technician_edits_cannot_break_upcoming_assignments()
+    {
+        var client = await fixture.AdminClientAsync();
+        var skill = await client.CreateSkillAsync();
+        var site = await client.CreateSiteAsync();
+        var tech = await client.CreateTechnicianAsync("Booked Solid", 40, true, skill.Id);
+        var monday = new DateTime(2033, 3, 7, 0, 0, 0, DateTimeKind.Utc);
+        foreach (var day in new[] { 0, 1, 2 })
+        {
+            var shift = await client.CreateShiftAsync(site.Id, skill.Id, monday.AddDays(day).AddHours(8), 8);
+            (await client.AssignAsync(shift.Id, tech.Id)).EnsureSuccessStatusCode();
+        }
+        TechnicianRequest Edit(int maxHours = 40, bool active = true) => new(tech.FullName, null, null, maxHours, active, [skill.Id]);
+
+        var deactivate = await client.PutAsJsonAsync($"/api/technicians/{tech.Id}", Edit(active: false));
+        Assert.Equal(HttpStatusCode.Conflict, deactivate.StatusCode);
+        Assert.Contains("deactivating", await deactivate.Content.ReadAsStringAsync());
+
+        var cut = await client.PutAsJsonAsync($"/api/technicians/{tech.Id}", Edit(maxHours: 20));
+        Assert.Equal(HttpStatusCode.Conflict, cut.StatusCode);
+        Assert.Contains("24 h", await cut.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync($"/api/technicians/{tech.Id}", Edit(maxHours: 24))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync($"/api/technicians/{tech.Id}", Edit(maxHours: 60))).StatusCode);
+    }
+
+        private sealed record ValidationProblem(Dictionary<string, string[]> Errors);
 }

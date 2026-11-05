@@ -1,8 +1,6 @@
 using JuDesk.Api.Auth;
 using JuDesk.Api.Contracts;
 using JuDesk.Api.Services;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
 
 namespace JuDesk.Api.Endpoints;
 
@@ -16,12 +14,18 @@ public static class SetupEndpoints
             new SetupStatusDto(await setup.NeedsSetupAsync(ct)))
             .Produces<SetupStatusDto>();
 
+        // What the front end needs before sign-in: the zone times are shown in, and the password rule to hint at.
+        api.MapGet("/config", (InstallationZone zone) => new ConfigDto(zone.Id, PasswordPolicy.MinLength))
+            .WithTags("Setup")
+            .AllowAnonymous()
+            .Produces<ConfigDto>();
+
         api.MapGet("/demo", (DemoService demo) => new DemoStatusDto(demo.Enabled, demo.ResetMinutes, demo.NextResetAt))
             .WithTags("Setup")
             .AllowAnonymous()
             .Produces<DemoStatusDto>();
 
-        group.MapPost("/", async (SetupRequest request, SetupService setup, HttpContext http, CancellationToken ct) =>
+        group.MapPost("/", async (SetupRequest request, SetupService setup, Sessions sessions, HttpContext http, CancellationToken ct) =>
         {
             var email = request.Email?.Trim().ToLowerInvariant() ?? string.Empty;
             var v = new Validation()
@@ -29,8 +33,7 @@ public static class SetupEndpoints
                 .Require("email", email)
                 .Must("email", email.Contains('@'), "Must be an email address.")
                 .Require("displayName", request.DisplayName, 120)
-                .Must("password", request.Password?.Length >= 8, "Must be at least 8 characters.")
-                .Must("password", request.Password?.Length <= AuthEndpoints.MaxPasswordLength, $"Must be at most {AuthEndpoints.MaxPasswordLength} characters.");
+                .Check("password", request.Password, email, request.DisplayName);
             if (v.Problem() is { } problem)
             {
                 return problem;
@@ -50,7 +53,7 @@ public static class SetupEndpoints
                 return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Wrong setup code. Check the API log; the code is burnt after too many wrong guesses.");
             }
 
-            await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, admin.ToPrincipal());
+            await sessions.SignInAsync(http, admin, ct);
             return Results.Created("/api/auth/me", admin.ToDto());
         })
         .RequireRateLimiting(AuthEndpoints.LoginRateLimitPolicy)

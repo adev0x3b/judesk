@@ -63,6 +63,8 @@ jobs:
     env:
       COMPOSE_PROJECT_NAME: judesk-ci
       WEB_PORT: "18090"
+      DB_PASSWORD: ci-only-database-password
+      SEED_DEMO: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build and start the stack

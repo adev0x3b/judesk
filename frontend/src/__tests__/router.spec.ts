@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DemoStatus, SetupStatus, User } from '@/api/types'
+import type { AppConfig, DemoStatus, SetupStatus, User } from '@/api/types'
 import { ApiError } from '@/api/client'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
@@ -8,16 +8,18 @@ import { useAuthStore } from '@/stores/auth'
 vi.mock('@/api', () => ({
   setupApi: { status: vi.fn<() => Promise<SetupStatus>>() },
   demoApi: { status: vi.fn<() => Promise<DemoStatus>>() },
+  configApi: { get: vi.fn<() => Promise<AppConfig>>() },
   authApi: { me: vi.fn<() => Promise<User>>() },
 }))
 
-const planner: User = { id: 'u1', email: 'p@test.local', displayName: 'Pat', role: 'Planner' }
+const planner: User = { id: 'u1', email: 'p@test.local', displayName: 'Pat', role: 'Planner', isDemo: false }
 
 describe('router guard', () => {
   beforeEach(async () => {
     setActivePinia(createPinia())
-    const { setupApi, demoApi, authApi } = await import('@/api')
+    const { setupApi, demoApi, configApi, authApi } = await import('@/api')
     vi.mocked(setupApi.status).mockResolvedValue({ needsSetup: false })
+    vi.mocked(configApi.get).mockResolvedValue({ timeZone: 'UTC', passwordMinLength: 12 })
     vi.mocked(demoApi.status).mockResolvedValue({ enabled: false, resetMinutes: 0, nextResetAt: null })
     vi.mocked(authApi.me).mockRejectedValue(new ApiError(401, null))
   })

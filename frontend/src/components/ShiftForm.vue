@@ -2,7 +2,8 @@
 import { computed, reactive, ref } from 'vue'
 import type { Shift, ShiftRequest, Site, Skill } from '@/api/types'
 import { ApiError } from '@/api/client'
-import { dateOf, timeOf, toIso } from '@/lib/week'
+import { dateOf, timeOf, zonedToUtc } from '@/lib/week'
+import { useConfigStore } from '@/stores/config'
 import ModalDialog from './ModalDialog.vue'
 
 const props = defineProps<{
@@ -21,11 +22,15 @@ const emit = defineEmits<{
   save: [request: ShiftRequest, id?: string]
 }>()
 
+const config = useConfigStore()
+/** Times are typed and shown in the installation's zone; the API gets UTC instants. */
+const zone = config.timeZone
+
 const form = reactive({
   siteId: props.shift?.siteId ?? props.sites[0]?.id ?? '',
-  day: props.shift ? dateOf(props.shift.startsAt) : (props.day ?? ''),
-  start: props.shift ? timeOf(props.shift.startsAt) : '08:00',
-  end: props.shift ? timeOf(props.shift.endsAt) : '16:00',
+  day: props.shift ? dateOf(props.shift.startsAt, zone) : (props.day ?? ''),
+  start: props.shift ? timeOf(props.shift.startsAt, zone) : '08:00',
+  end: props.shift ? timeOf(props.shift.endsAt, zone) : '16:00',
   requiredSkillId: props.shift?.requiredSkillId ?? props.skills[0]?.id ?? '',
   headcount: props.shift?.headcount ?? 1,
   notes: props.shift?.notes ?? '',
@@ -59,8 +64,8 @@ async function submit() {
       'save',
       {
         siteId: form.siteId,
-        startsAt: toIso(form.day, form.start),
-        endsAt: toIso(form.day, form.end),
+        startsAt: zonedToUtc(form.day, form.start, zone),
+        endsAt: zonedToUtc(form.day, form.end, zone),
         requiredSkillId: form.requiredSkillId,
         headcount: Number(form.headcount),
         notes: form.notes.trim() === '' ? null : form.notes.trim(),
@@ -98,11 +103,11 @@ defineExpose({ showErrors })
 
       <div class="form-row">
         <div class="field">
-          <label for="start">Start (UTC)</label>
+          <label for="start">Start ({{ zone }})</label>
           <input id="start" v-model="form.start" class="input" type="time" required :disabled="locked" />
         </div>
         <div class="field">
-          <label for="end">End (UTC)</label>
+          <label for="end">End ({{ zone }})</label>
           <input
             id="end"
             v-model="form.end"

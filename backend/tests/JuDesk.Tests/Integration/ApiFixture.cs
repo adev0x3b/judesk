@@ -42,6 +42,8 @@ public sealed class ApiFixture : IAsyncLifetime
         {
             builder.UseSetting("ConnectionStrings:Default", connectionString);
             builder.UseSetting("Seed:Demo", "false");
+            // The scheduling tests are written in UTC; TimeZoneTests runs its own factory on Europe/Rome.
+            builder.UseSetting("Schedule:TimeZone", "UTC");
             // Every test logs in from the same loopback address; keep the brute-force limiter out of the way.
             builder.UseSetting("Auth:LoginAttemptsPerMinute", "100000");
             builder.UseSetting("RateLimits:RequestsPerMinute", "100000");
@@ -76,13 +78,30 @@ public sealed class ApiFixture : IAsyncLifetime
     public HttpClient AnonymousClient() => Factory.CreateClient();
 
     /// <summary>A client already logged in as the seeded admin (cookie jar handled by the test client).</summary>
-    public async Task<HttpClient> AdminClientAsync()
+    public Task<HttpClient> AdminClientAsync() => LoginAsync(AdminEmail, AdminPassword);
+
+    public async Task<HttpClient> LoginAsync(string email, string password)
     {
         var client = Factory.CreateClient();
-        var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(AdminEmail, AdminPassword));
+        var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, password));
         response.EnsureSuccessStatusCode();
         return client;
     }
+
+    /// <summary>Creates a planner through the admin API and returns it with a password that passes the policy.</summary>
+    public async Task<(UserDto User, string Password)> CreatePlannerAsync(string? displayName = null)
+    {
+        const string password = "Willow-Ferry-Ninety-3";
+        var admin = await AdminClientAsync();
+        var email = $"planner-{Guid.NewGuid():N}@test.local";
+        var response = await admin.PostAsJsonAsync("/api/users", new CreateUserRequest(email, displayName ?? "Pat Planner", password, Domain.Entities.UserRole.Planner));
+        response.EnsureSuccessStatusCode();
+        return ((await response.Content.ReadFromJsonAsync<UserDto>())!, password);
+    }
+
+    /// <summary>The raw auth cookie (name=value) a login response set, to replay it from a client without a cookie jar.</summary>
+    public static string AuthCookie(HttpResponseMessage response) =>
+        response.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith("judesk.auth=", StringComparison.Ordinal)).Split(';')[0];
 }
 
 [CollectionDefinition(Name)]

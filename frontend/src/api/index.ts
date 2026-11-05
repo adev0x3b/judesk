@@ -1,5 +1,6 @@
 import { http } from './client'
 import type {
+  AppConfig,
   Assignment,
   AutoAssignResult,
   Candidate,
@@ -23,6 +24,10 @@ export const setupApi = {
   complete: (request: SetupRequest) => http.post<User>('/api/setup', request),
 }
 
+export const configApi = {
+  get: () => http.get<AppConfig>('/api/config'),
+}
+
 export const demoApi = {
   status: () => http.get<DemoStatus>('/api/demo'),
 }
@@ -32,12 +37,15 @@ export const authApi = {
   loginDemo: () => http.post<User>('/api/auth/demo'),
   logout: () => http.post<void>('/api/auth/logout'),
   me: () => http.get<User>('/api/auth/me'),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    http.post<void>('/api/auth/password', { currentPassword, newPassword }),
 }
 
 export const usersApi = {
   list: () => http.get<User[]>('/api/users'),
   create: (request: CreateUserRequest) => http.post<User>('/api/users', request),
   remove: (id: string) => http.delete(`/api/users/${id}`),
+  resetPassword: (id: string, newPassword: string) => http.post<void>(`/api/users/${id}/password`, { newPassword }),
 }
 
 export const skillsApi = {

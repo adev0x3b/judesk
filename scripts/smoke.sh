@@ -7,7 +7,7 @@ set -euo pipefail
 
 BASE="${1:-http://127.0.0.1:8090}"
 EMAIL="${ADMIN_EMAIL:-smoke@judesk.local}"
-PASSWORD="${ADMIN_PASSWORD:-Smoke-Pass-1}"
+PASSWORD="${ADMIN_PASSWORD:-Signal-Harbor-Morning-8}"
 JAR="$(mktemp)"
 trap 'rm -f "$JAR"' EXIT
 

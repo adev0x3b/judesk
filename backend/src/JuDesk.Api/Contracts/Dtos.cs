@@ -10,10 +10,15 @@ public sealed record SetupRequest(string? Code, string? Email, string? DisplayNa
 // Demo
 public sealed record DemoStatusDto(bool Enabled, int ResetMinutes, DateTime? NextResetAt);
 
+// Public settings the front end needs before anyone signs in.
+public sealed record ConfigDto(string TimeZone, int PasswordMinLength);
+
 // Auth
 public sealed record LoginRequest(string Email, string Password);
-public sealed record UserDto(Guid Id, string Email, string DisplayName, UserRole Role);
+public sealed record UserDto(Guid Id, string Email, string DisplayName, UserRole Role, bool IsDemo);
 public sealed record CreateUserRequest(string Email, string DisplayName, string Password, UserRole Role);
+public sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);
+public sealed record ResetPasswordRequest(string? NewPassword);
 
 // Skills
 public sealed record SkillDto(Guid Id, string Name);

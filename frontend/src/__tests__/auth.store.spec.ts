@@ -1,10 +1,11 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DemoStatus, SetupStatus, User } from '@/api/types'
+import type { AppConfig, DemoStatus, SetupStatus, User } from '@/api/types'
 import { ApiError } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
+import { useConfigStore } from '@/stores/config'
 
-const admin: User = { id: 'u1', email: 'boss@test.local', displayName: 'Boss', role: 'Admin' }
+const admin: User = { id: 'u1', email: 'boss@test.local', displayName: 'Boss', role: 'Admin', isDemo: false }
 
 vi.mock('@/api', () => ({
   setupApi: {
@@ -13,6 +14,9 @@ vi.mock('@/api', () => ({
   },
   demoApi: {
     status: vi.fn<() => Promise<DemoStatus>>(),
+  },
+  configApi: {
+    get: vi.fn<() => Promise<AppConfig>>(),
   },
   authApi: {
     me: vi.fn<() => Promise<User>>(),
@@ -27,8 +31,9 @@ const demoOff: DemoStatus = { enabled: false, resetMinutes: 0, nextResetAt: null
 describe('auth store', () => {
   beforeEach(async () => {
     setActivePinia(createPinia())
-    const { demoApi } = await import('@/api')
+    const { demoApi, configApi } = await import('@/api')
     vi.mocked(demoApi.status).mockResolvedValue(demoOff)
+    vi.mocked(configApi.get).mockResolvedValue({ timeZone: 'Europe/Rome', passwordMinLength: 12 })
   })
 
   it('reports setup pending and asks nothing else of the API', async () => {
@@ -54,6 +59,21 @@ describe('auth store', () => {
     expect(store.needsSetup).toBe(false)
     expect(store.user).toEqual(admin)
     expect(store.isAdmin).toBe(true)
+    expect(useConfigStore().timeZone).toBe('Europe/Rome')
+  })
+
+  it('still restores the session when the public config cannot be fetched', async () => {
+    const { setupApi, authApi, configApi } = await import('@/api')
+    vi.mocked(setupApi.status).mockResolvedValueOnce({ needsSetup: false })
+    vi.mocked(configApi.get).mockRejectedValueOnce(new ApiError(500, null))
+    vi.mocked(authApi.me).mockResolvedValueOnce(admin)
+    const store = useAuthStore()
+
+    await store.restore()
+
+    expect(store.serverDown).toBe(false)
+    expect(store.user).toEqual(admin)
+    expect(useConfigStore().timeZone).toBe('UTC')
   })
 
   it('treats a 401 on restore as signed out, not as an error', async () => {
@@ -104,7 +124,7 @@ describe('auth store', () => {
     vi.mocked(setupApi.status).mockResolvedValueOnce({ needsSetup: false })
     vi.mocked(demoApi.status).mockResolvedValueOnce({ enabled: true, resetMinutes: 60, nextResetAt: '2030-01-01T10:00:00Z' })
     vi.mocked(authApi.me).mockRejectedValueOnce(new ApiError(401, null))
-    const planner: User = { id: 'u2', email: 'demo@judesk.local', displayName: 'Demo planner', role: 'Planner' }
+    const planner: User = { id: 'u2', email: 'demo@judesk.local', displayName: 'Demo planner', role: 'Planner', isDemo: true }
     vi.mocked(authApi.loginDemo).mockResolvedValueOnce(planner)
     const store = useAuthStore()
 
@@ -121,8 +141,9 @@ describe('auth store', () => {
 describe('auth store session end', () => {
   it('drops the toasts of the old session on logout', async () => {
     setActivePinia(createPinia())
-    const { authApi, demoApi } = await import('@/api')
+    const { authApi, demoApi, configApi } = await import('@/api')
     vi.mocked(demoApi.status).mockResolvedValue(demoOff)
+    vi.mocked(configApi.get).mockResolvedValue({ timeZone: 'UTC', passwordMinLength: 12 })
     vi.mocked(authApi.logout).mockResolvedValue()
     const { useToastStore } = await import('@/stores/toast')
     const toast = useToastStore()

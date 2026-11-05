@@ -4,9 +4,11 @@ import { useRouter } from 'vue-router'
 import { setupApi } from '@/api'
 import { ApiError } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
+import { useConfigStore } from '@/stores/config'
 import ThemeButton from '@/components/ThemeButton.vue'
 
 const auth = useAuthStore()
+const config = useConfigStore()
 const router = useRouter()
 
 const form = reactive({ code: '', displayName: '', email: '', password: '' })
@@ -102,7 +104,7 @@ async function submit() {
           class="input"
           type="password"
           autocomplete="new-password"
-          minlength="8"
+          :minlength="config.passwordMinLength"
           required
           :aria-invalid="!!fieldError('password')"
         />

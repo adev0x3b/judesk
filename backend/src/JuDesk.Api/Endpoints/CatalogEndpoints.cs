@@ -43,7 +43,9 @@ public static class CatalogEndpoints
             return Results.Created($"/api/skills/{skill.Id}", skill.ToDto());
         }).Produces<SkillDto>(StatusCodes.Status201Created).ProducesValidationProblem();
 
-        group.MapDelete("/{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
+        // The guards below are check-then-act, so each runs serializable: a shift created between the
+        // check and the delete makes one of the two transactions fail and retry.
+        group.MapDelete("/{id:guid}", (Guid id, AppDbContext db, CancellationToken ct) => Serializable.RunAsync(db, async () =>
         {
             if (await db.Shifts.AnyAsync(s => s.RequiredSkillId == id, ct))
             {
@@ -51,7 +53,7 @@ public static class CatalogEndpoints
             }
             var deleted = await db.Skills.Where(s => s.Id == id).ExecuteDeleteAsync(ct);
             return deleted > 0 ? Results.NoContent() : Results.NotFound();
-        });
+        }, ct));
     }
 
     private static void MapTechnicians(RouteGroupBuilder group)
@@ -83,38 +85,32 @@ public static class CatalogEndpoints
             return Results.Created($"/api/technicians/{technician.Id}", technician.ToDto());
         }).Produces<TechnicianDto>(StatusCodes.Status201Created).ProducesValidationProblem();
 
-        group.MapPut("/{id:guid}", async (Guid id, TechnicianRequest request, AppDbContext db, CancellationToken ct) =>
+        // Edits that would break upcoming assignments are refused, like the rules refuse a bad assign:
+        // removing a skill a shift needs, deactivating, or cutting the weekly limit below what is booked.
+        group.MapPut("/{id:guid}", async (Guid id, TechnicianRequest request, AppDbContext db, InstallationZone zone, CancellationToken ct) =>
         {
             if (await ValidateAsync(request, db, ct) is { } problem)
             {
                 return problem;
             }
-            var technician = await db.Technicians.Include(t => t.Skills).FirstOrDefaultAsync(t => t.Id == id, ct);
-            if (technician is null)
+            return await Serializable.RunAsync(db, async () =>
             {
-                return Results.NotFound();
-            }
-            var keptSkills = request.SkillIds?.ToHashSet() ?? [];
-            var removedSkillIds = technician.Skills.Select(s => s.Id).Where(s => !keptSkills.Contains(s)).ToList();
-            if (removedSkillIds.Count > 0)
-            {
-                var now = DateTime.UtcNow;
-                var stillNeeded = await db.Assignments
-                    .Where(a => a.TechnicianId == id && a.Shift!.EndsAt > now && removedSkillIds.Contains(a.Shift.RequiredSkillId))
-                    .Select(a => a.Shift!.RequiredSkill!.Name)
-                    .Distinct()
-                    .ToListAsync(ct);
-                if (stillNeeded.Count > 0)
+                var technician = await db.Technicians.Include(t => t.Skills).FirstOrDefaultAsync(t => t.Id == id, ct);
+                if (technician is null)
                 {
-                    return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: $"Upcoming shifts still need {string.Join(", ", stillNeeded)}; unassign them before removing the skill.");
+                    return Results.NotFound();
                 }
-            }
-            await ApplyAsync(technician, request, db, ct);
-            await db.SaveChangesAsync(ct);
-            return Results.Ok(technician.ToDto());
-        }).Produces<TechnicianDto>().ProducesValidationProblem();
+                if (await UpcomingConflictAsync(technician, request, db, zone, ct) is { } conflict)
+                {
+                    return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: conflict);
+                }
+                await ApplyAsync(technician, request, db, ct);
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(technician.ToDto());
+            }, ct);
+        }).Produces<TechnicianDto>().ProducesValidationProblem().ProducesProblem(StatusCodes.Status409Conflict);
 
-        group.MapDelete("/{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
+        group.MapDelete("/{id:guid}", (Guid id, AppDbContext db, CancellationToken ct) => Serializable.RunAsync(db, async () =>
         {
             // Past assignments go with the technician; upcoming ones must be handed over first.
             var now = DateTime.UtcNow;
@@ -124,7 +120,45 @@ public static class CatalogEndpoints
             }
             var deleted = await db.Technicians.Where(t => t.Id == id).ExecuteDeleteAsync(ct);
             return deleted > 0 ? Results.NoContent() : Results.NotFound();
-        });
+        }, ct));
+
+        // Why the edit cannot go through, or null when it can.
+        static async Task<string?> UpcomingConflictAsync(Technician technician, TechnicianRequest request, AppDbContext db, InstallationZone zone, CancellationToken ct)
+        {
+            var now = DateTime.UtcNow;
+            var upcoming = await db.Assignments.AsNoTracking()
+                .Where(a => a.TechnicianId == technician.Id && a.Shift!.EndsAt > now)
+                .Select(a => new { a.Shift!.StartsAt, a.Shift.EndsAt, a.Shift.RequiredSkillId, Skill = a.Shift.RequiredSkill!.Name })
+                .ToListAsync(ct);
+            if (upcoming.Count == 0)
+            {
+                return null;
+            }
+            if (technician.Active && !request.Active)
+            {
+                return $"{technician.FullName} is on {upcoming.Count} upcoming shift(s); unassign them before deactivating.";
+            }
+            var kept = request.SkillIds?.ToHashSet() ?? [];
+            var stillNeeded = upcoming.Where(u => !kept.Contains(u.RequiredSkillId)).Select(u => u.Skill).Distinct().Order().ToList();
+            if (stillNeeded.Count > 0)
+            {
+                return $"Upcoming shifts still need {string.Join(", ", stillNeeded)}; unassign them before removing the skill.";
+            }
+            if (request.MaxWeeklyHours < technician.MaxWeeklyHours)
+            {
+                var busiest = upcoming
+                    .GroupBy(u => zone.WeekContaining(u.StartsAt).Monday)
+                    .Select(g => (Monday: g.Key, Hours: g.Sum(u => (u.EndsAt - u.StartsAt).TotalHours)))
+                    .Where(w => w.Hours > request.MaxWeeklyHours)
+                    .OrderBy(w => w.Monday)
+                    .FirstOrDefault();
+                if (busiest.Hours > 0)
+                {
+                    return $"{technician.FullName} already has {busiest.Hours:0.#} h in the week of {busiest.Monday:d MMM}; unassign some shifts before lowering the limit to {request.MaxWeeklyHours} h.";
+                }
+            }
+            return null;
+        }
 
         static async Task<IResult?> ValidateAsync(TechnicianRequest request, AppDbContext db, CancellationToken ct)
         {
@@ -190,7 +224,7 @@ public static class CatalogEndpoints
             return Results.Ok(site.ToDto());
         }).Produces<SiteDto>().ProducesValidationProblem();
 
-        group.MapDelete("/{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
+        group.MapDelete("/{id:guid}", (Guid id, AppDbContext db, CancellationToken ct) => Serializable.RunAsync(db, async () =>
         {
             // Deleting a site would silently take its shifts and assignments with it.
             var now = DateTime.UtcNow;
@@ -200,7 +234,7 @@ public static class CatalogEndpoints
             }
             var deleted = await db.Sites.Where(s => s.Id == id).ExecuteDeleteAsync(ct);
             return deleted > 0 ? Results.NoContent() : Results.NotFound();
-        });
+        }, ct));
 
         static IResult? Validate(SiteRequest request) => new Validation()
             .Require("name", request.Name, 120)

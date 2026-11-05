@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import type { Candidate, Shift } from '@/api/types'
 import { shiftsApi } from '@/api'
 import { formatDay, dateOf, hoursLabel, timeOf } from '@/lib/week'
+import { useConfigStore } from '@/stores/config'
 
 const props = defineProps<{
   shift: Shift
@@ -16,6 +17,9 @@ const emit = defineEmits<{
   edit: []
   remove: []
 }>()
+
+const config = useConfigStore()
+const time = (iso: string) => timeOf(iso, config.timeZone)
 
 const candidates = ref<Candidate[]>([])
 const loading = ref(false)
@@ -50,7 +54,7 @@ function onlyHoursViolation(c: Candidate) {
     <header class="drawer-head">
       <div>
         <div class="eyebrow faint">
-          {{ formatDay(dateOf(shift.startsAt)) }} · {{ timeOf(shift.startsAt) }}–{{ timeOf(shift.endsAt) }} ·
+          {{ formatDay(dateOf(shift.startsAt, config.timeZone)) }} · {{ time(shift.startsAt) }}–{{ time(shift.endsAt) }} ·
           {{ hoursLabel(shift.hours) }}
         </div>
         <h2 :style="{ color: shift.siteColor ?? undefined }">{{ shift.siteName }}</h2>

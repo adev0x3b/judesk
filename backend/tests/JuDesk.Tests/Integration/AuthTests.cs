@@ -66,11 +66,11 @@ public class AuthTests(ApiFixture fixture)
         var admin = await fixture.AdminClientAsync();
         var email = $"planner-{Guid.NewGuid():N}@test.local";
 
-        var created = await admin.PostAsJsonAsync("/api/users", new CreateUserRequest(email, "Planner", "Planner-Pass-1", UserRole.Planner));
+        var created = await admin.PostAsJsonAsync("/api/users", new CreateUserRequest(email, "Planner", "Copper-Meadow-73", UserRole.Planner));
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
 
         var planner = fixture.AnonymousClient();
-        var login = await planner.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "Planner-Pass-1"));
+        var login = await planner.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "Copper-Meadow-73"));
         Assert.Equal(HttpStatusCode.OK, login.StatusCode);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await planner.GetAsync("/api/users")).StatusCode);
@@ -85,7 +85,7 @@ public class AuthTests(ApiFixture fixture)
         var weak = await admin.PostAsJsonAsync("/api/users", new CreateUserRequest("x@test.local", "X", "short", UserRole.Planner));
         Assert.Equal(HttpStatusCode.BadRequest, weak.StatusCode);
 
-        var duplicate = await admin.PostAsJsonAsync("/api/users", new CreateUserRequest(ApiFixture.AdminEmail, "Dup", "Long-Enough-1", UserRole.Planner));
+        var duplicate = await admin.PostAsJsonAsync("/api/users", new CreateUserRequest(ApiFixture.AdminEmail, "Dup", "Granite-River-26", UserRole.Planner));
         Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
     }
 
@@ -94,13 +94,13 @@ public class AuthTests(ApiFixture fixture)
     {
         var admin = await fixture.AdminClientAsync();
         var me = await admin.GetFromJsonAsync<UserDto>("/api/auth/me");
-        var second = await admin.PostAsJsonAsync("/api/users", new CreateUserRequest($"admin2-{Guid.NewGuid():N}@test.local", "Second", "Second-Pass-1", UserRole.Admin));
+        var second = await admin.PostAsJsonAsync("/api/users", new CreateUserRequest($"admin2-{Guid.NewGuid():N}@test.local", "Second", "Silver-Orchard-19", UserRole.Admin));
         second.EnsureSuccessStatusCode();
         var secondAdmin = await second.Content.ReadFromJsonAsync<UserDto>();
 
         // Signed in as the second admin: deleting the first one is fine while two exist...
         var other = fixture.AnonymousClient();
-        (await other.PostAsJsonAsync("/api/auth/login", new LoginRequest(secondAdmin!.Email, "Second-Pass-1"))).EnsureSuccessStatusCode();
+        (await other.PostAsJsonAsync("/api/auth/login", new LoginRequest(secondAdmin!.Email, "Silver-Orchard-19"))).EnsureSuccessStatusCode();
         var admins = (await other.GetFromJsonAsync<List<UserDto>>("/api/users"))!.Where(u => u.Role == UserRole.Admin).ToList();
         Assert.True(admins.Count >= 2);
 
@@ -117,11 +117,11 @@ public class AuthTests(ApiFixture fixture)
     {
         var admin = await fixture.AdminClientAsync();
         var email = $"gone-{Guid.NewGuid():N}@test.local";
-        var created = await (await admin.PostAsJsonAsync("/api/users", new CreateUserRequest(email, "Gone", "Gone-Pass-1", UserRole.Planner)))
+        var created = await (await admin.PostAsJsonAsync("/api/users", new CreateUserRequest(email, "Gone", "Paper-Thistle-84", UserRole.Planner)))
             .Content.ReadFromJsonAsync<UserDto>();
 
         var planner = fixture.AnonymousClient();
-        Assert.Equal(HttpStatusCode.OK, (await planner.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "Gone-Pass-1"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await planner.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "Paper-Thistle-84"))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await planner.GetAsync("/api/technicians")).StatusCode);
 
         Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/users/{created!.Id}")).StatusCode);

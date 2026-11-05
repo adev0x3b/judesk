@@ -18,8 +18,9 @@ public static class AssignmentRules
     /// shift, plus any on the days around it: all of them count for the overlap check, only the
     /// ones starting in that week count towards the weekly hours. The target shift itself is ignored.
     /// </param>
-    public static IReadOnlyList<Violation> Check(Technician technician, Shift shift, IEnumerable<Shift> technicianShifts) =>
-        Check(technician, shift, technicianShifts, shift.Assignments.Count, shift.Assignments.Any(a => a.TechnicianId == technician.Id));
+    /// <param name="zone">The installation's time zone: weeks are cut at its Monday midnight. UTC when null.</param>
+    public static IReadOnlyList<Violation> Check(Technician technician, Shift shift, IEnumerable<Shift> technicianShifts, TimeZoneInfo? zone = null) =>
+        Check(technician, shift, technicianShifts, shift.Assignments.Count, shift.Assignments.Any(a => a.TechnicianId == technician.Id), zone);
 
     /// <summary>
     /// Same check with the shift's occupancy given explicitly, for callers that plan several
@@ -27,8 +28,9 @@ public static class AssignmentRules
     /// </summary>
     /// <param name="assignedCount">How many technicians are on the shift right now.</param>
     /// <param name="alreadyAssigned">Whether this technician is one of them.</param>
-    public static IReadOnlyList<Violation> Check(Technician technician, Shift shift, IEnumerable<Shift> technicianShifts, int assignedCount, bool alreadyAssigned)
+    public static IReadOnlyList<Violation> Check(Technician technician, Shift shift, IEnumerable<Shift> technicianShifts, int assignedCount, bool alreadyAssigned, TimeZoneInfo? zone = null)
     {
+        zone ??= TimeZoneInfo.Utc;
         var violations = new List<Violation>();
 
         if (!technician.Active)
@@ -57,11 +59,11 @@ public static class AssignmentRules
         {
             violations.Add(new Violation(
                 ViolationCode.Overlap,
-                $"Overlaps with {other.Site?.Name ?? "another shift"} {other.StartsAt:ddd HH:mm}-{other.EndsAt:HH:mm}.",
+                $"Overlaps with {other.Site?.Name ?? "another shift"} {Zoned.ToLocal(other.StartsAt, zone):ddd HH:mm}-{Zoned.ToLocal(other.EndsAt, zone):HH:mm}.",
                 other.Id));
         }
 
-        var week = IsoWeek.Containing(shift.StartsAt);
+        var week = IsoWeek.Containing(shift.StartsAt, zone);
         var scheduled = existing.Where(s => week.Contains(s.StartsAt)).Sum(s => s.Hours);
         var projected = scheduled + shift.Hours;
         if (projected > technician.MaxWeeklyHours)

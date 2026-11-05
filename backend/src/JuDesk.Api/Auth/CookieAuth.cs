@@ -34,21 +34,39 @@ public static class CookieAuth
                     ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
                     return Task.CompletedTask;
                 };
-                // A cookie that still verifies but belongs to a user who no longer exists (deleted,
-                // or the database was recreated) is rejected and cleared, so the client gets a
-                // clean 401 and a fresh login instead of a half-authenticated state.
+                // Every request checks the cookie's session row: signed out, idle too long, past its absolute
+                // lifetime, user deleted (the row cascades) or role changed all give a clean 401 and a
+                // cleared cookie instead of a half-authenticated state. One primary-key lookup per request.
                 options.Events.OnValidatePrincipal = async ctx =>
                 {
                     var db = ctx.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
-                    var id = ctx.Principal?.UserId();
+                    var sessionId = ctx.Principal is null ? null : Sessions.CurrentId(ctx.Principal);
+                    var userId = ctx.Principal?.UserId();
                     var role = ctx.Principal?.FindFirstValue(ClaimTypes.Role);
-                    var current = id is null
+                    var session = sessionId is null
                         ? null
-                        : await db.Users.AsNoTracking().Where(u => u.Id == id).Select(u => new { u.Role }).FirstOrDefaultAsync();
-                    if (current is null || current.Role.ToString() != role)
+                        : await db.UserSessions.AsNoTracking()
+                            .Where(s => s.Id == sessionId)
+                            .Select(s => new { s.UserId, s.CreatedAt, s.LastSeenAt, s.User!.Role })
+                            .FirstOrDefaultAsync();
+                    var now = DateTime.UtcNow;
+                    if (session is null
+                        || session.UserId != userId
+                        || session.Role.ToString() != role
+                        || now - session.LastSeenAt > Sessions.IdleTimeout
+                        || now - session.CreatedAt > Sessions.AbsoluteLifetime)
                     {
+                        if (sessionId is not null)
+                        {
+                            await db.UserSessions.Where(s => s.Id == sessionId).ExecuteDeleteAsync();
+                        }
                         ctx.RejectPrincipal();
                         await ctx.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                        return;
+                    }
+                    if (now - session.LastSeenAt > Sessions.TouchInterval)
+                    {
+                        await db.UserSessions.Where(s => s.Id == sessionId).ExecuteUpdateAsync(u => u.SetProperty(s => s.LastSeenAt, now));
                     }
                 };
             });
@@ -59,10 +77,12 @@ public static class CookieAuth
         return services;
     }
 
-    public static ClaimsPrincipal ToPrincipal(this User user)
+    /// <summary>The cookie's claims; <paramref name="sessionToken"/> ties it to a <see cref="UserSession"/> row.</summary>
+    public static ClaimsPrincipal ToPrincipal(this User user, string sessionToken)
     {
         var identity = new ClaimsIdentity(
         [
+            new Claim(Sessions.ClaimType, sessionToken),
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Name, user.DisplayName),
             new Claim(ClaimTypes.Email, user.Email),

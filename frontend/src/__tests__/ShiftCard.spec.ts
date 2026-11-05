@@ -1,7 +1,9 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { beforeEach, describe, expect, it } from 'vitest'
 import ShiftCard from '@/components/ShiftCard.vue'
 import type { Shift, TechnicianLoad } from '@/api/types'
+import { useConfigStore } from '@/stores/config'
 
 const shift: Shift = {
   id: 'shift-1',
@@ -36,6 +38,10 @@ const plumber: TechnicianLoad = {
 }
 
 describe('ShiftCard', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
   it('shows the time, site, skill, assigned names and open slots', () => {
     const wrapper = mount(ShiftCard, { props: { shift, selected: false, dragging: null } })
 
@@ -46,6 +52,14 @@ describe('ShiftCard', () => {
     expect(wrapper.findAll('.slot')).toHaveLength(2)
     expect(wrapper.findAll('.slot.open')).toHaveLength(1)
     expect(wrapper.find('.auto-mark').exists()).toBe(true)
+  })
+
+  it('shows the times in the installation zone', () => {
+    useConfigStore().timeZone = 'Europe/Rome'
+    const wrapper = mount(ShiftCard, { props: { shift, selected: false, dragging: null } })
+
+    expect(wrapper.text()).toContain('08:00–16:00')
+    expect(wrapper.attributes('aria-label')).toContain('08:00 to 16:00')
   })
 
   it('emits select on click and drop with the dragged technician id', async () => {

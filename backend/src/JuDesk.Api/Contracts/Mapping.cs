@@ -5,7 +5,7 @@ namespace JuDesk.Api.Contracts;
 
 public static class Mapping
 {
-    public static UserDto ToDto(this User u) => new(u.Id, u.Email, u.DisplayName, u.Role);
+    public static UserDto ToDto(this User u) => new(u.Id, u.Email, u.DisplayName, u.Role, u.Email == Services.DemoService.DemoEmail);
 
     public static SkillDto ToDto(this Skill s) => new(s.Id, s.Name);
 

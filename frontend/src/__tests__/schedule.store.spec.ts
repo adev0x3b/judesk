@@ -1,6 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WeekSchedule } from '@/api/types'
+import { useConfigStore } from '@/stores/config'
 import { useScheduleStore } from '@/stores/schedule'
 
 const week: WeekSchedule = {
@@ -76,6 +77,21 @@ describe('schedule store', () => {
     store.siteFilter = 'b'
     expect(store.visibleShifts.map((s) => s.id)).toEqual(['s2'])
     expect(store.openSlots).toBe(0)
+  })
+
+  it('groups shifts by the day they start on in the installation zone', async () => {
+    useConfigStore().timeZone = 'Europe/Rome'
+    const { scheduleApi } = await import('@/api')
+    // 23:30Z on Monday is 00:30 on Tuesday in Rome.
+    const shift = { ...week.shifts[0]!, id: 's3', startsAt: '2026-10-12T23:30:00Z', endsAt: '2026-10-13T05:00:00Z' }
+    vi.mocked(scheduleApi.week).mockResolvedValueOnce({ ...week, shifts: [shift] })
+    const store = useScheduleStore()
+    store.weekStart = '2026-10-12'
+
+    await store.load()
+
+    expect(store.shiftsByDay.get('2026-10-12')).toEqual([])
+    expect(store.shiftsByDay.get('2026-10-13')?.map((s) => s.id)).toEqual(['s3'])
   })
 
   it('moves between weeks', async () => {

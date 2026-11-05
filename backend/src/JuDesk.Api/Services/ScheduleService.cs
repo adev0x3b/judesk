@@ -17,7 +17,7 @@ public sealed class AssignmentRejected(IReadOnlyList<Violation> violations) : Ex
 /// Everything that reads or changes a week of assignments. Rules live in the Domain project;
 /// this class loads the right slice of data and applies them inside a transaction.
 /// </summary>
-public sealed class ScheduleService(AppDbContext db)
+public sealed class ScheduleService(AppDbContext db, InstallationZone zone)
 {
     public async Task<WeekScheduleDto> GetWeekAsync(IsoWeek week, CancellationToken ct)
     {
@@ -52,14 +52,14 @@ public sealed class ScheduleService(AppDbContext db)
             return null;
         }
 
-        var week = IsoWeek.Containing(shift.StartsAt);
+        var week = zone.WeekContaining(shift.StartsAt);
         var technicians = await db.Technicians.AsNoTracking().Include(t => t.Skills).OrderBy(t => t.FullName).ThenBy(t => t.Id).ToListAsync(ct);
         var around = await LoadShiftsAroundAsync(week, ct);
 
         return technicians.Select(t =>
         {
             var mine = around.Where(s => s.Assignments.Any(a => a.TechnicianId == t.Id)).ToList();
-            var violations = AssignmentRules.Check(t, shift, mine);
+            var violations = AssignmentRules.Check(t, shift, mine, zone.Zone);
             return new CandidateDto(
                 t.Id, t.FullName,
                 Math.Round(mine.Where(s => s.Id != shift.Id && week.Contains(s.StartsAt)).Sum(s => s.Hours), 2),
@@ -87,14 +87,14 @@ public sealed class ScheduleService(AppDbContext db)
             return null;
         }
 
-        var week = IsoWeek.Containing(shift.StartsAt);
+        var week = zone.WeekContaining(shift.StartsAt);
         var mine = await db.Shifts.AsNoTracking()
             .Include(s => s.Site)
             .Where(AroundWeek(week))
             .Where(s => s.Assignments.Any(a => a.TechnicianId == technicianId))
             .ToListAsync(ct);
 
-        var violations = AssignmentRules.Check(technician, shift, mine)
+        var violations = AssignmentRules.Check(technician, shift, mine, zone.Zone)
             .Where(v => !(overrideHours && v.Code == ViolationCode.MaxHoursExceeded))
             .ToList();
         if (violations.Count > 0)
@@ -121,7 +121,7 @@ public sealed class ScheduleService(AppDbContext db)
         var shifts = await LoadWeekShiftsAsync(week, ct);
         var surrounding = (await LoadShiftsAroundAsync(week, ct)).Where(s => !week.Contains(s.StartsAt)).ToList();
         var technicians = await db.Technicians.AsNoTracking().Include(t => t.Skills).Where(t => t.Active).OrderBy(t => t.FullName).ThenBy(t => t.Id).ToListAsync(ct);
-        var plan = AutoScheduler.Plan(shifts, technicians, surrounding);
+        var plan = AutoScheduler.Plan(shifts, technicians, surrounding, zone.Zone);
         var names = technicians.ToDictionary(t => t.Id, t => t.FullName);
 
         if (!dryRun && plan.Assignments.Count > 0)
@@ -153,6 +153,7 @@ public sealed class ScheduleService(AppDbContext db)
     {
         var shifts = await LoadWeekShiftsAsync(week, ct);
         var sb = new StringBuilder();
+        // Dates and times are wall-clock times in the installation's zone, as the planner sees them.
         sb.AppendLine("date,start,end,hours,site,skill,technician,source,notes");
 
         foreach (var shift in shifts.OrderBy(s => s.StartsAt).ThenBy(s => s.Site!.Name))
@@ -166,11 +167,13 @@ public sealed class ScheduleService(AppDbContext db)
                 rows.Add((Technician: string.Empty, Source: "Unfilled"));
             }
 
+            var start = zone.ToLocal(shift.StartsAt);
+            var end = zone.ToLocal(shift.EndsAt);
             foreach (var row in rows)
             {
-                sb.Append(shift.StartsAt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).Append(',')
-                  .Append(shift.StartsAt.ToString("HH:mm", CultureInfo.InvariantCulture)).Append(',')
-                  .Append(shift.EndsAt.ToString("HH:mm", CultureInfo.InvariantCulture)).Append(',')
+                sb.Append(start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).Append(',')
+                  .Append(start.ToString("HH:mm", CultureInfo.InvariantCulture)).Append(',')
+                  .Append(end.ToString("HH:mm", CultureInfo.InvariantCulture)).Append(',')
                   .Append(shift.Hours.ToString("0.##", CultureInfo.InvariantCulture)).Append(',')
                   .Append(Csv(shift.Site!.Name)).Append(',')
                   .Append(Csv(shift.RequiredSkill!.Name)).Append(',')
@@ -218,19 +221,14 @@ public sealed class ScheduleService(AppDbContext db)
 
     private Task<List<Shift>> LoadWeekShiftsAsync(IsoWeek week, CancellationToken ct) =>
         db.Shifts.AsNoTracking()
-            .Include(s => s.Site)
-            .Include(s => s.RequiredSkill)
-            .Include(s => s.Assignments).ThenInclude(a => a.Technician)
+            .WithDetails()
             .Where(s => s.StartsAt >= week.StartUtc && s.StartsAt < week.EndUtc)
             .OrderBy(s => s.StartsAt).ThenBy(s => s.Site!.Name)
             .ToListAsync(ct);
 
     private Task<Shift?> LoadShiftAsync(Guid id, bool tracking, CancellationToken ct)
     {
-        IQueryable<Shift> query = db.Shifts
-            .Include(s => s.Site)
-            .Include(s => s.RequiredSkill)
-            .Include(s => s.Assignments).ThenInclude(a => a.Technician);
+        var query = db.Shifts.WithDetails();
         if (!tracking)
         {
             query = query.AsNoTracking();

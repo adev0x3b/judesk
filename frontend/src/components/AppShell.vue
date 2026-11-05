@@ -1,22 +1,29 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { demoApi } from '@/api'
 import { useApiErrors } from '@/composables/useApiErrors'
+import { timeOf } from '@/lib/week'
 import { useAuthStore } from '@/stores/auth'
+import { useConfigStore } from '@/stores/config'
 import { useScheduleStore } from '@/stores/schedule'
+import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import ThemeButton from '@/components/ThemeButton.vue'
 
 const auth = useAuthStore()
+const config = useConfigStore()
 const schedule = useScheduleStore()
 const router = useRouter()
 const { fail } = useApiErrors()
 
-/** Shown in the browser's time zone, and labelled as such, since the rest of the app shows UTC. */
+/** Shown in the installation's time zone, like every other time in the app. */
 const nextReset = computed(() => {
   const at = auth.demo.nextResetAt
-  return at ? new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null
+  return at ? timeOf(at, config.timeZone) : null
 })
+
+/** The change-password dialog; the shared demo account has no password of its own to change. */
+const changingPassword = ref(false)
 
 let resetTimer: number | undefined
 
@@ -67,17 +74,19 @@ async function logout() {
         <span class="muted">{{ auth.user?.displayName }}</span>
         <span class="chip">{{ auth.user?.role }}</span>
         <ThemeButton />
+        <button v-if="!auth.user?.isDemo" class="btn btn-ghost btn-sm" @click="changingPassword = true">Change password</button>
         <button class="btn btn-ghost btn-sm" @click="logout">Sign out</button>
       </div>
     </header>
     <p v-if="auth.demo.enabled" class="demo-banner" role="status">
       Public demo: anything you change is thrown away every
       {{ auth.demo.resetMinutes === 60 ? 'hour' : `${auth.demo.resetMinutes} minutes`
-      }}<template v-if="nextReset"> (next reset at {{ nextReset }} local)</template>.
+      }}<template v-if="nextReset"> (next reset at {{ nextReset }})</template>.
     </p>
     <main class="content">
       <slot />
     </main>
+    <ChangePasswordDialog v-if="changingPassword" @close="changingPassword = false" />
   </div>
 </template>
 
@@ -186,6 +195,13 @@ async function logout() {
 
   .user .muted {
     display: none;
+  }
+
+  /* Two text buttons plus the chip may not fit beside the brand; let them wrap onto their own line. */
+  .user {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
   }
 }
 </style>

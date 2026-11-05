@@ -26,7 +26,8 @@ public static class AutoScheduler
     /// Assigned shifts just outside the week (the day before and after). They are never planned,
     /// but a shift crossing midnight on Sunday or Monday must not be double-booked.
     /// </param>
-    public static SchedulePlan Plan(IReadOnlyCollection<Shift> weekShifts, IReadOnlyCollection<Technician> technicians, IReadOnlyCollection<Shift>? surroundingShifts = null)
+    /// <param name="zone">The installation's time zone, for the weekly-hours rule. UTC when null.</param>
+    public static SchedulePlan Plan(IReadOnlyCollection<Shift> weekShifts, IReadOnlyCollection<Technician> technicians, IReadOnlyCollection<Shift>? surroundingShifts = null, TimeZoneInfo? zone = null)
     {
         surroundingShifts ??= [];
         if (weekShifts.Count == 0 || technicians.Count == 0)
@@ -54,7 +55,8 @@ public static class AutoScheduler
                 t, s,
                 assignedShiftIds[t.Id].Select(id => shiftsById[id]),
                 currentCount[s.Id],
-                assignedShiftIds[t.Id].Contains(s.Id));
+                assignedShiftIds[t.Id].Contains(s.Id),
+                zone);
 
         double HoursOf(Technician t, IsoWeek week) => assignedShiftIds[t.Id].Select(id => shiftsById[id]).Where(s => week.Contains(s.StartsAt)).Sum(s => s.Hours);
 
@@ -75,7 +77,7 @@ public static class AutoScheduler
         {
             while (currentCount[shift.Id] < shift.Headcount)
             {
-                var week = IsoWeek.Containing(shift.StartsAt);
+                var week = IsoWeek.Containing(shift.StartsAt, zone);
                 var pick = technicians
                     .Select(t => new { Technician = t, Violations = CheckFor(t, shift) })
                     .Where(x => x.Violations.Count == 0)

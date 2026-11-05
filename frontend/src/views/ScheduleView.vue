@@ -8,12 +8,14 @@ import ShiftDrawer from '@/components/ShiftDrawer.vue'
 import ShiftForm from '@/components/ShiftForm.vue'
 import TechnicianPanel from '@/components/TechnicianPanel.vue'
 import WeekGrid from '@/components/WeekGrid.vue'
-import { dateOf, formatRange, isoDate, mondayOf } from '@/lib/week'
+import { dateOf, formatRange, mondayOf } from '@/lib/week'
+import { useConfigStore } from '@/stores/config'
 import { useScheduleStore } from '@/stores/schedule'
 import { useApiErrors } from '@/composables/useApiErrors'
 import { useToastStore } from '@/stores/toast'
 
 const schedule = useScheduleStore()
+const config = useConfigStore()
 const toast = useToastStore()
 const { fail } = useApiErrors()
 
@@ -83,7 +85,9 @@ async function saveShift(request: ShiftRequest, id?: string) {
     } else {
       const created = await schedule.createShift(request)
       // A shift created on a day outside the visible week would otherwise vanish; follow it.
-      if (!schedule.days.includes(dateOf(created.startsAt))) await schedule.goTo(isoDate(mondayOf(new Date(created.startsAt))))
+      if (!schedule.days.includes(dateOf(created.startsAt, config.timeZone))) {
+        await schedule.goTo(mondayOf(new Date(created.startsAt), config.timeZone))
+      }
       schedule.select(created.id)
       toast.success('Shift created')
     }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Shift, TechnicianLoad } from '@/api/types'
 import { formatDay, isoDate } from '@/lib/week'
+import { useConfigStore } from '@/stores/config'
 import ShiftCard from './ShiftCard.vue'
 
 defineProps<{
@@ -18,7 +19,7 @@ const emit = defineEmits<{
   add: [day: string]
 }>()
 
-const today = isoDate(new Date())
+const today = isoDate(new Date(), useConfigStore().timeZone)
 </script>
 
 <template>

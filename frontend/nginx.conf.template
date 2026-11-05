@@ -1,9 +1,12 @@
 # Serves the built Vue app and proxies the API on the same origin, so the auth cookie stays first-party.
+# The image renders this template at start; only ${TRUST_FORWARDED_PROTO} is substituted.
 
-# Keep the scheme a TLS terminator in front of nginx reports, so the API marks the cookie Secure.
-map $http_x_forwarded_proto $forwarded_proto {
+# Pass on the scheme a TLS terminator in front of nginx (a tunnel or CDN) reports, so the API marks
+# the cookie Secure. Only when TRUST_FORWARDED_PROTO=true: without such a proxy, any client could
+# claim https.
+map "${TRUST_FORWARDED_PROTO}:$http_x_forwarded_proto" $forwarded_proto {
     default $scheme;
-    https https;
+    "true:https" https;
 }
 
 server {

@@ -7,7 +7,7 @@ namespace JuDesk.Api.Data;
 public sealed class SeedOptions
 {
     public const string Section = "Seed";
-    public bool Demo { get; set; } = true;
+    public bool Demo { get; set; }
 }
 
 /// <summary>
@@ -18,7 +18,8 @@ public sealed class SeedOptions
 /// </summary>
 public static class DemoSeeder
 {
-    public static async Task SeedAsync(AppDbContext db, SeedOptions options, ILogger logger, CancellationToken ct = default, bool force = false)
+    /// <param name="zone">The installation's time zone: shift times are local wall-clock times there.</param>
+    public static async Task SeedAsync(AppDbContext db, SeedOptions options, TimeZoneInfo zone, ILogger logger, CancellationToken ct = default, bool force = false)
     {
         if (!options.Demo || (!force && await db.Technicians.AnyAsync(ct)))
         {
@@ -54,7 +55,7 @@ public static class DemoSeeder
         };
         db.Sites.AddRange(sites);
 
-        var thisWeek = IsoWeek.Containing(DateTime.UtcNow);
+        var thisWeek = IsoWeek.Containing(DateTime.UtcNow, zone);
         var shifts = new List<Shift>();
         foreach (var week in new[] { thisWeek.Previous(), thisWeek, thisWeek.Next() })
         {
@@ -88,7 +89,7 @@ public static class DemoSeeder
     {
         Shift At(int site, int day, int startHour, int hours, Skill skill, int headcount = 1, string? notes = null)
         {
-            var start = week.StartUtc.AddDays(day).AddHours(startHour);
+            var start = Zoned.ToUtc(week.Monday.AddDays(day).ToDateTime(new TimeOnly(startHour, 0)), week.Zone);
             return new Shift
             {
                 Site = sites[site],
