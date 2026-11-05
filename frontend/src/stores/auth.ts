@@ -64,12 +64,18 @@ export const useAuthStore = defineStore('auth', () => {
     expired.value = false
   }
 
+  /**
+   * Ends the session on the server first. If that fails (API down, network error), the user stays
+   * signed in and the error reaches the caller, so a shared computer is never left with a live
+   * session that only looks signed out. A 401 means the session was already gone.
+   */
   async function logout() {
     try {
       await authApi.logout()
-    } finally {
-      endSession()
+    } catch (e) {
+      if (!(e instanceof ApiError && e.isUnauthorized)) throw e
     }
+    endSession()
   }
 
   setUnauthorizedHandler(() => {

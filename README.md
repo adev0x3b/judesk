@@ -86,8 +86,9 @@ The API itself is configured through [`appsettings.json`](backend/src/JuDesk.Api
 
 The compose defaults suit a local environment. Before exposing the app:
 
+- finish setup first: until an admin exists, anyone who reaches the page can try the setup code, and five wrong guesses burn it;
 - put HTTPS termination in front of nginx (nothing in the stack speaks TLS) and set `TRUST_FORWARDED_PROTO=true` so the cookie is marked Secure;
-- use a long random `DB_PASSWORD` and leave `SEED_DEMO` and `SWAGGER_ENABLED` off;
+- use a long random `DB_PASSWORD` (letters and digits, for example `openssl rand -hex 24`) and leave `SEED_DEMO` and `SWAGGER_ENABLED` off;
 - `WEB_BIND` is `127.0.0.1` so nothing outside the machine sees the port by accident. To reach the app from a phone on the same LAN or tailnet, set `WEB_BIND=0.0.0.0` (or the address of that interface; Docker Desktop only binds addresses Windows owns, so `0.0.0.0` is the safe pick there) and keep the firewall in mind. Leave it on loopback when a reverse proxy or tunnel on the same host does the publishing;
 - the login limit is per client address and nginx passes the address it sees, so a proxy in front of nginx should be the only thing that reaches the port.
 
@@ -96,7 +97,7 @@ The compose defaults suit a local environment. Before exposing the app:
 Run the API and the Vite dev server separately. Vite proxies `/api` to the API, so the auth cookie stays on one origin.
 
 ```bash
-docker run -d --name judesk-db -e POSTGRES_USER=judesk -e POSTGRES_PASSWORD=judesk -e POSTGRES_DB=judesk -p 5432:5432 postgres:16-alpine
+docker run -d --name judesk-db -e POSTGRES_USER=judesk -e POSTGRES_PASSWORD=judesk -e POSTGRES_DB=judesk -p 5432:5432 postgres:18-alpine
 
 cd backend
 dotnet run --project src/JuDesk.Api        # http://localhost:5080, prints the setup code
@@ -178,20 +179,22 @@ backend/
   tests/JuDesk.Tests/     xUnit: unit tests, API tests on a real PostgreSQL via Testcontainers
 frontend/                 Vue 3 + TypeScript (Vite, Pinia, vue-router), Vitest
 scripts/                  smoke.sh, regen-setup-code.sh
-docker-compose.yml        db (PostgreSQL 16), api, web (nginx serving the build and proxying /api)
+docker-compose.yml        db (PostgreSQL 18), api, web (nginx serving the build and proxying /api)
 .github/workflows/ci.yml  backend tests, front-end checks, compose smoke test
 ```
 
 ## Built with
 
-ASP.NET Core 10 (minimal API), Entity Framework Core 10, PostgreSQL 16, Vue 3, TypeScript, Vite, Pinia, xUnit, Testcontainers, Vitest, Docker Compose, nginx.
+ASP.NET Core 10 (minimal API), Entity Framework Core 10, PostgreSQL 18, Vue 3, TypeScript, Vite, Pinia, xUnit, Testcontainers, Vitest, Docker Compose, nginx.
 
 ## Security
 
 - No default credentials: the first admin is created with a one-time setup code that the API prints only to its own log and retires on use. Passwords are hashed with PBKDF2 (`PasswordHasher`).
 - The only cookie is the session, and there are no analytics or third-party requests. The session cookie is HttpOnly and SameSite=Strict and points at a session row on the server, checked on every request. Logging out deletes that row, so a copied cookie stops working. Sessions end after 12 hours idle or 30 days in all. A password change signs out your other devices; an admin reset signs the person out everywhere.
-- Login and setup are rate limited per client address (10 attempts a minute by default), every other API call at 300 a minute, and each address runs at most two auto-assigns at once (`Auth__LoginAttemptsPerMinute`, `RateLimits__RequestsPerMinute`, `RateLimits__HeavyConcurrency`). Five wrong passwords lock that email for 15 minutes from every address; the answer is the same whether or not the account exists, and an admin reset lifts it.
-- Pages carry a `Content-Security-Policy` (no inline scripts, same-origin only); every response carries `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy`. Both containers run as non-root users.
+- Login and setup are rate limited per client (10 attempts a minute by default) and every other API call at 300 a minute. A client is an IPv4 address or an IPv6 /64, since one IPv6 subscriber usually holds a whole /64 (`Auth__LoginAttemptsPerMinute`, `RateLimits__RequestsPerMinute`).
+- Five wrong passwords lock that email for 15 minutes from every address; the answer is the same whether or not the account exists. The flip side: anyone who knows an email can keep it locked, so an admin reset or an API restart lifts the lock.
+- Auto-assign is CPU-bound, so at most two plans run per client and two in the whole installation, nobody queues, and a plan that needs more than 10 seconds stops with a clear error (`RateLimits__HeavyConcurrency`, `RateLimits__AutoAssignGlobal`, `RateLimits__AutoAssignSeconds`).
+- Pages carry a `Content-Security-Policy` (no inline scripts, same-origin only); every response carries `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy`. The api and web containers run as non-root users with every Linux capability dropped and `no-new-privileges`.
 - The last admin account cannot be deleted, so the app never falls back into setup.
 - Login compares against a dummy hash when the email is unknown, so timing does not reveal which accounts exist. Passwords are 12 to 128 characters with no other rules: length beats composition rules, and guessing is held back by the rate limit and the lockout.
 - CSV cells that a spreadsheet would run as a formula (`=`, `+`, `-`, `@`) are prefixed with `'`.

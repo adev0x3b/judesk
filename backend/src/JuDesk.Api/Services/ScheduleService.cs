@@ -116,12 +116,30 @@ public sealed class ScheduleService(AppDbContext db, InstallationZone zone)
         return deleted > 0;
     }
 
-    public Task<AutoAssignResultDto> AutoAssignAsync(IsoWeek week, bool dryRun, CancellationToken ct) => Serializable.RunAsync(db, async () =>
+    /// <summary>
+    /// Plans the week and, unless <paramref name="dryRun"/>, saves the plan. Throws <see cref="PlanTooLarge"/>
+    /// when planning outlasts <paramref name="budget"/> (all retries together).
+    /// </summary>
+    public async Task<AutoAssignResultDto> AutoAssignAsync(IsoWeek week, bool dryRun, TimeSpan budget, CancellationToken ct)
+    {
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        limit.CancelAfter(budget);
+        try
+        {
+            return await PlanAndSaveAsync(week, dryRun, limit.Token);
+        }
+        catch (OperationCanceledException) when (limit.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            throw new PlanTooLarge();
+        }
+    }
+
+    private Task<AutoAssignResultDto> PlanAndSaveAsync(IsoWeek week, bool dryRun, CancellationToken ct) => Serializable.RunAsync(db, async () =>
     {
         var shifts = await LoadWeekShiftsAsync(week, ct);
         var surrounding = (await LoadShiftsAroundAsync(week, ct)).Where(s => !week.Contains(s.StartsAt)).ToList();
         var technicians = await db.Technicians.AsNoTracking().Include(t => t.Skills).Where(t => t.Active).OrderBy(t => t.FullName).ThenBy(t => t.Id).ToListAsync(ct);
-        var plan = AutoScheduler.Plan(shifts, technicians, surrounding, zone.Zone);
+        var plan = AutoScheduler.Plan(shifts, technicians, surrounding, zone.Zone, ct);
         var names = technicians.ToDictionary(t => t.Id, t => t.FullName);
 
         if (!dryRun && plan.Assignments.Count > 0)

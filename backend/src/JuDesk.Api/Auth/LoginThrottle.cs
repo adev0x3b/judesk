@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Caching.Memory;
+using System.Collections.Concurrent;
 
 namespace JuDesk.Api.Auth;
 
@@ -9,46 +9,68 @@ namespace JuDesk.Api.Auth;
 /// whether or not the account exists, so the lockout message does not reveal which emails are registered.
 /// In memory: the API runs as one instance, and a restart only resets the counters.
 /// </summary>
-public sealed class LoginThrottle : IDisposable
+/// <remarks>
+/// Memory is bounded by pruning counters that went quiet, never by dropping a live one: a flood of
+/// random emails must not be able to push the admin's counter out and reset it.
+/// </remarks>
+public sealed class LoginThrottle(TimeProvider clock)
 {
     public const int MaxFailures = 5;
     public static readonly TimeSpan LockFor = TimeSpan.FromMinutes(15);
+    private const int PruneAbove = 10_000;
 
-    // Bounded, so a flood of random emails evicts old counters instead of growing memory.
-    private readonly MemoryCache _entries = new(new MemoryCacheOptions { SizeLimit = 20_000 });
+    private readonly ConcurrentDictionary<string, Entry> _entries = new();
 
     private sealed class Entry
     {
         public int Failures;
-        public DateTime? LockedUntil;
+        public DateTimeOffset LastFailure;
+        public DateTimeOffset? LockedUntil;
     }
 
     public bool IsLocked(string email) =>
-        _entries.TryGetValue(Key(email), out Entry? entry) && entry!.LockedUntil > DateTime.UtcNow;
+        _entries.TryGetValue(Key(email), out var entry) && Locked(entry, clock.GetUtcNow());
 
     public void Failed(string email)
     {
-        var entry = _entries.GetOrCreate(Key(email), e =>
+        var now = clock.GetUtcNow();
+        if (_entries.Count > PruneAbove)
         {
-            e.Size = 1;
-            e.SlidingExpiration = LockFor;
-            return new Entry();
-        })!;
+            Prune(now);
+        }
+        var entry = _entries.GetOrAdd(Key(email), _ => new Entry());
         lock (entry)
         {
+            // A counter that went quiet for the lock period starts again from zero.
+            if (now - entry.LastFailure > LockFor && !Locked(entry, now))
+            {
+                entry.Failures = 0;
+            }
+            entry.LastFailure = now;
             entry.Failures++;
             if (entry.Failures >= MaxFailures)
             {
                 entry.Failures = 0;
-                entry.LockedUntil = DateTime.UtcNow + LockFor;
+                entry.LockedUntil = now + LockFor;
             }
         }
     }
 
     /// <summary>A successful login or a password reset clears the counter.</summary>
-    public void Clear(string email) => _entries.Remove(Key(email));
+    public void Clear(string email) => _entries.TryRemove(Key(email), out _);
+
+    private static bool Locked(Entry entry, DateTimeOffset now) => entry.LockedUntil > now;
+
+    private void Prune(DateTimeOffset now)
+    {
+        foreach (var (key, entry) in _entries)
+        {
+            if (now - entry.LastFailure > LockFor && !Locked(entry, now))
+            {
+                _entries.TryRemove(key, out _);
+            }
+        }
+    }
 
     private static string Key(string email) => email.Trim().ToLowerInvariant();
-
-    public void Dispose() => _entries.Dispose();
 }

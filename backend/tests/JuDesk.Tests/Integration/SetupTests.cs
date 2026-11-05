@@ -19,14 +19,14 @@ public class SetupTests(ApiFixture fixture) : IAsyncLifetime
 {
     private WebApplicationFactory<Program> _factory = null!;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         var cs = fixture.ConnectionString.Replace("Database=judesk_test", $"Database=setup_{Guid.NewGuid():N}");
         _factory = ApiFixture.CreateFactory(cs);
         (await _factory.CreateClient().GetAsync("/health")).EnsureSuccessStatusCode();
     }
 
-    public async Task DisposeAsync() => await _factory.DisposeAsync();
+    public async ValueTask DisposeAsync() => await _factory.DisposeAsync();
 
     [Fact]
     public async Task Fresh_install_needs_setup_and_has_a_code_but_no_accounts()

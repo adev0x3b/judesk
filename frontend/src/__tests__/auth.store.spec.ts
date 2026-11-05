@@ -153,4 +153,16 @@ describe('auth store session end', () => {
     await useAuthStore().logout()
     expect(toast.toasts).toHaveLength(0)
   })
+
+  it('stays signed in when the server could not end the session', async () => {
+    setActivePinia(createPinia())
+    const { authApi } = await import('@/api')
+    const { ApiError } = await import('@/api/client')
+    vi.mocked(authApi.logout).mockRejectedValue(new ApiError(502, null))
+    const auth = useAuthStore()
+    auth.user = { id: 'u1', email: 'a@b.c', displayName: 'A', role: 'Planner', isDemo: false }
+
+    await expect(auth.logout()).rejects.toBeInstanceOf(ApiError)
+    expect(auth.user).not.toBeNull()
+  })
 })

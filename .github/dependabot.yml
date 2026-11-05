@@ -36,7 +36,7 @@ updates:
     schedule:
       interval: weekly
     ignore:
-      # The runtime majors are chosen on purpose (.NET 10 LTS, Node 24 LTS, PostgreSQL 16).
+      # The runtime majors are chosen on purpose (.NET 10 LTS, Node 24 LTS, PostgreSQL 18).
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
   - package-ecosystem: docker-compose

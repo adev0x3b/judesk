@@ -38,7 +38,7 @@ public class CatalogTests(ApiFixture fixture)
         var skill = await client.CreateSkillAsync();
         var site = await client.CreateSiteAsync();
         var tech = await client.CreateTechnicianAsync("Marco Neri", 40, true, skill.Id);
-        var shift = await client.CreateShiftAsync(site.Id, skill.Id, new DateTime(2031, 3, 3, 8, 0, 0, DateTimeKind.Utc), 8);
+        var shift = await client.CreateShiftAsync(site.Id, skill.Id, new DateTime(2035, 3, 5, 8, 0, 0, DateTimeKind.Utc), 8);
         var assignment = await (await client.AssignAsync(shift.Id, tech.Id)).Content.ReadFromJsonAsync<AssignmentDto>();
 
         var strip = await client.PutAsJsonAsync($"/api/technicians/{tech.Id}", new TechnicianRequest("Marco Neri", null, null, 40, true, []));

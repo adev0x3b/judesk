@@ -27,7 +27,8 @@ public static class AutoScheduler
     /// but a shift crossing midnight on Sunday or Monday must not be double-booked.
     /// </param>
     /// <param name="zone">The installation's time zone, for the weekly-hours rule. UTC when null.</param>
-    public static SchedulePlan Plan(IReadOnlyCollection<Shift> weekShifts, IReadOnlyCollection<Technician> technicians, IReadOnlyCollection<Shift>? surroundingShifts = null, TimeZoneInfo? zone = null)
+    /// <param name="ct">Checked once per slot, so a caller can put a time budget on a large week.</param>
+    public static SchedulePlan Plan(IReadOnlyCollection<Shift> weekShifts, IReadOnlyCollection<Technician> technicians, IReadOnlyCollection<Shift>? surroundingShifts = null, TimeZoneInfo? zone = null, CancellationToken ct = default)
     {
         surroundingShifts ??= [];
         if (weekShifts.Count == 0 || technicians.Count == 0)
@@ -58,6 +59,12 @@ public static class AutoScheduler
                 assignedShiftIds[t.Id].Contains(s.Id),
                 zone);
 
+        int Counted(int eligible)
+        {
+            ct.ThrowIfCancellationRequested();
+            return eligible;
+        }
+
         double HoursOf(Technician t, IsoWeek week) => assignedShiftIds[t.Id].Select(id => shiftsById[id]).Where(s => week.Contains(s.StartsAt)).Sum(s => s.Hours);
 
         var open = weekShifts
@@ -65,7 +72,7 @@ public static class AutoScheduler
             .Select(s => new
             {
                 Shift = s,
-                Eligible = technicians.Count(t => CheckFor(t, s).Count == 0),
+                Eligible = Counted(technicians.Count(t => CheckFor(t, s).Count == 0)),
             })
             .OrderBy(x => x.Eligible)
             .ThenBy(x => x.Shift.StartsAt)
@@ -77,6 +84,7 @@ public static class AutoScheduler
         {
             while (currentCount[shift.Id] < shift.Headcount)
             {
+                ct.ThrowIfCancellationRequested();
                 var week = IsoWeek.Containing(shift.StartsAt, zone);
                 var pick = technicians
                     .Select(t => new { Technician = t, Violations = CheckFor(t, shift) })

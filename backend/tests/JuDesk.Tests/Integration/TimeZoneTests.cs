@@ -12,14 +12,14 @@ public class TimeZoneTests(ApiFixture fixture) : IAsyncLifetime
     private const string Password = "Olive-Tramway-Thirty-5";
     private WebApplicationFactory<Program> _factory = null!;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         var cs = fixture.ConnectionString.Replace("Database=judesk_test", $"Database=rome_{Guid.NewGuid():N}");
         _factory = ApiFixture.CreateFactory(cs).WithWebHostBuilder(b => b.UseSetting("Schedule:TimeZone", "Europe/Rome"));
         await ApiFixture.CompleteSetupAsync(_factory, "rome@test.local", Password);
     }
 
-    public async Task DisposeAsync() => await _factory.DisposeAsync();
+    public async ValueTask DisposeAsync() => await _factory.DisposeAsync();
 
     private async Task<HttpClient> LoginAsync()
     {

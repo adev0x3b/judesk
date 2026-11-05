@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using JuDesk.Api.Auth;
@@ -24,7 +25,9 @@ builder.Services.AddScoped<ScheduleService>();
 var zone = new InstallationZone(builder.Configuration.GetValue("Schedule:TimeZone", "Europe/Rome")!);
 builder.Services.AddSingleton(zone);
 builder.Services.AddScoped<Sessions>();
+builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<LoginThrottle>();
+builder.Services.AddSingleton<AutoAssignGate>();
 builder.Services.AddScoped<SetupService>();
 builder.Services.Configure<DemoOptions>(builder.Configuration.GetSection(DemoOptions.Section));
 builder.Services.AddSingleton<DemoState>();
@@ -74,15 +77,15 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy(AuthEndpoints.LoginRateLimitPolicy, http =>
         RateLimitPartition.GetFixedWindowLimiter(
-            http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            RateLimits.ClientKey(http),
             _ => new FixedWindowRateLimiterOptions { PermitLimit = loginAttemptsPerMinute, Window = TimeSpan.FromMinutes(1) }));
     options.AddPolicy(RateLimits.ApiPolicy, http =>
         RateLimitPartition.GetFixedWindowLimiter(
-            http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            RateLimits.ClientKey(http),
             _ => new FixedWindowRateLimiterOptions { PermitLimit = requestsPerMinute, Window = TimeSpan.FromMinutes(1) }));
     options.AddPolicy(RateLimits.HeavyPolicy, http =>
         RateLimitPartition.GetConcurrencyLimiter(
-            http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            RateLimits.ClientKey(http),
             _ => new ConcurrencyLimiterOptions
             {
                 PermitLimit = heavyConcurrency,

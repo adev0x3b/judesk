@@ -17,7 +17,7 @@ public sealed class ApiFixture : IAsyncLifetime
     public const string AdminEmail = "admin@test.local";
     public const string AdminPassword = "Test-Password-1";
 
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine")
+    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:18-alpine")
         .WithDatabase("judesk_test")
         .WithUsername("judesk")
         .WithPassword("judesk")
@@ -30,7 +30,7 @@ public sealed class ApiFixture : IAsyncLifetime
     /// <summary>Connection string of the shared container, for tests that want a database of their own.</summary>
     public string ConnectionString => _postgres.GetConnectionString();
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         await _postgres.StartAsync();
         _factory = CreateFactory(ConnectionString);
@@ -66,7 +66,7 @@ public sealed class ApiFixture : IAsyncLifetime
         return await scope.ServiceProvider.GetRequiredService<SetupService>().IssueCodeIfNeededAsync();
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_factory is not null)
         {

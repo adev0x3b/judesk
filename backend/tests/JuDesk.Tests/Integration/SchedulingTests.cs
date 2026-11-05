@@ -14,6 +14,7 @@ public class SchedulingTests(ApiFixture fixture)
     private static readonly object WeekLock = new();
     private static int _weekCounter;
 
+    // Weeks from 2031-01-06 on belong to this class: auto-assign plans a whole week, so no other test may put shifts there.
     private static DateTime FreshMonday()
     {
         lock (WeekLock)

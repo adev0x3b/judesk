@@ -10,6 +10,12 @@ EMAIL="${ADMIN_EMAIL:-smoke@judesk.local}"
 PASSWORD="${ADMIN_PASSWORD:-Signal-Harbor-Morning-8}"
 JAR="$(mktemp)"
 trap 'rm -f "$JAR"' EXIT
+export EMAIL PASSWORD
+
+# JSON bodies are built by python from the environment, so quotes in a password cannot break them
+# and nothing secret shows up in the process list.
+setup_body() { SETUP="$1" python3 -c 'import json,os; print(json.dumps({"code": os.environ["SETUP"], "email": os.environ["EMAIL"], "displayName": "Smoke", "password": os.environ["PASSWORD"]}))'; }
+login_body() { python3 -c 'import json,os; print(json.dumps({"email": os.environ["EMAIL"], "password": os.environ["PASSWORD"]}))'; }
 
 echo "== waiting for $BASE/health"
 for _ in $(seq 1 60); do
@@ -27,19 +33,16 @@ needs=$(curl -fsS "$BASE/api/setup/status" | python3 -c 'import json,sys; print(
 if [ "$needs" = "True" ]; then
   code="${SETUP_CODE:-$(docker compose logs --no-color api | grep -oE '[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}' | tail -1)}"
   [ -n "$code" ] || { echo "no setup code found in the api log"; exit 1; }
-  wrong=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
-    -d "{\"code\":\"AAAA-AAAA-AAAA\",\"email\":\"$EMAIL\",\"displayName\":\"Smoke\",\"password\":\"$PASSWORD\"}" "$BASE/api/setup")
+  wrong=$(setup_body AAAA-AAAA-AAAA | curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data @- "$BASE/api/setup")
   [ "$wrong" = "403" ] || { echo "expected 403 for a wrong code, got $wrong"; exit 1; }
-  curl -fsS -H 'Content-Type: application/json' \
-    -d "{\"code\":\"$code\",\"email\":\"$EMAIL\",\"displayName\":\"Smoke\",\"password\":\"$PASSWORD\"}" "$BASE/api/setup" >/dev/null
+  setup_body "$code" | curl -fsS -H 'Content-Type: application/json' --data @- "$BASE/api/setup" >/dev/null
   echo "   admin created with the printed code"
 else
   echo "   already done"
 fi
 
 echo "== login"
-curl -fsS -c "$JAR" -H 'Content-Type: application/json' \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" "$BASE/api/auth/login" >/dev/null
+login_body | curl -fsS -c "$JAR" -H 'Content-Type: application/json' --data @- "$BASE/api/auth/login" >/dev/null
 
 echo "== week view has shifts and technicians"
 week=$(curl -fsS -b "$JAR" "$BASE/api/schedule/week")

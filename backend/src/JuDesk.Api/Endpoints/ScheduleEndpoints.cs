@@ -16,12 +16,34 @@ public static class ScheduleEndpoints
             .Produces<WeekScheduleDto>().ProducesValidationProblem();
 
         // The planner is CPU work over the whole week, so each address runs only a few at once (RateLimits:HeavyConcurrency).
-        group.MapPost("/auto-assign", async (AutoAssignRequest request, ScheduleService schedule, InstallationZone zone, CancellationToken ct) =>
-            !Dates.IsSane(request.WeekStart)
-                ? Dates.Problem("weekStart")
-                : Results.Ok(await schedule.AutoAssignAsync(zone.Week(request.WeekStart), request.DryRun, ct)))
+        group.MapPost("/auto-assign", async (AutoAssignRequest request, ScheduleService schedule, InstallationZone zone, AutoAssignGate gate, CancellationToken ct) =>
+        {
+            if (!Dates.IsSane(request.WeekStart))
+            {
+                return Dates.Problem("weekStart");
+            }
+            using var slot = gate.TryEnter();
+            if (slot is null)
+            {
+                return Results.Problem(statusCode: StatusCodes.Status429TooManyRequests, title: "The auto-scheduler is busy. Try again in a moment.");
+            }
+            try
+            {
+                return Results.Ok(await schedule.AutoAssignAsync(zone.Week(request.WeekStart), request.DryRun, gate.Budget, ct));
+            }
+            catch (PlanTooLarge)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status422UnprocessableEntity,
+                    title: "This week is too large to auto-assign in one go.",
+                    detail: "Assign some shifts by hand, or remove shifts nobody needs, and try again.");
+            }
+        })
             .RequireRateLimiting(RateLimits.HeavyPolicy)
-            .Produces<AutoAssignResultDto>().ProducesValidationProblem();
+            .Produces<AutoAssignResultDto>()
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
         group.MapDelete("/auto-assignments", async (DateOnly? weekStart, ScheduleService schedule, InstallationZone zone, CancellationToken ct) =>
             BadWeek(weekStart) ? Dates.Problem("weekStart") : Results.Ok(new { removed = await schedule.ClearAutoAssignmentsAsync(WeekOf(weekStart, zone), ct) }));

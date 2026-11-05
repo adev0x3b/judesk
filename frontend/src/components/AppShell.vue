@@ -7,6 +7,7 @@ import { timeOf } from '@/lib/week'
 import { useAuthStore } from '@/stores/auth'
 import { useConfigStore } from '@/stores/config'
 import { useScheduleStore } from '@/stores/schedule'
+import { useToastStore } from '@/stores/toast'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import ThemeButton from '@/components/ThemeButton.vue'
 
@@ -14,6 +15,7 @@ const auth = useAuthStore()
 const config = useConfigStore()
 const schedule = useScheduleStore()
 const router = useRouter()
+const toast = useToastStore()
 const { fail } = useApiErrors()
 
 /** Shown in the installation's time zone, like every other time in the app. */
@@ -52,7 +54,12 @@ watch(() => auth.demo.nextResetAt, armResetTimer, { immediate: true })
 onBeforeUnmount(() => window.clearTimeout(resetTimer))
 
 async function logout() {
-  await auth.logout()
+  try {
+    await auth.logout()
+  } catch {
+    toast.error('Sign-out failed', ['You are still signed in. Try again in a moment.'])
+    return
+  }
   await router.push({ name: 'login' })
 }
 </script>
