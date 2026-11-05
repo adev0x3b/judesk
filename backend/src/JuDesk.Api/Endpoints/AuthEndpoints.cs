@@ -83,7 +83,7 @@ public static class AuthEndpoints
                 && hasher.VerifyHashedPassword(user, user.PasswordHash, current) != PasswordVerificationResult.Failed;
             var v = new Validation()
                 .Must("currentPassword", currentOk, "Wrong password.")
-                .Check("newPassword", request.NewPassword, user.Email, user.DisplayName)
+                .Check("newPassword", request.NewPassword)
                 .Must("newPassword", request.NewPassword != current, "Must differ from the current password.");
             if (v.Problem() is { } problem)
             {
@@ -158,7 +158,7 @@ public static class AuthEndpoints
                 .Must("email", email.Contains('@'), "Must be an email address.")
                 .Require("displayName", request.DisplayName, 120)
                 .Must("role", Enum.IsDefined(request.Role), "Must be Planner or Admin.")
-                .Check("password", request.Password, email, request.DisplayName);
+                .Check("password", request.Password);
             if (v.Problem() is { } problem)
             {
                 return problem;
@@ -190,7 +190,7 @@ public static class AuthEndpoints
             {
                 return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "The demo account has no password to reset.");
             }
-            if (new Validation().Check("newPassword", request.NewPassword, user.Email, user.DisplayName).Problem() is { } problem)
+            if (new Validation().Check("newPassword", request.NewPassword).Problem() is { } problem)
             {
                 return problem;
             }

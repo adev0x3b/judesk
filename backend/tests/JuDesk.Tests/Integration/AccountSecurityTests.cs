@@ -59,7 +59,7 @@ public class AccountSecurityTests(ApiFixture fixture)
         Assert.Equal(HttpStatusCode.BadRequest, wrong.StatusCode);
         Assert.Contains("currentPassword", await wrong.Content.ReadAsStringAsync());
 
-        var weak = await mine.PostAsJsonAsync("/api/auth/password", new ChangePasswordRequest(password, "123456789012"));
+        var weak = await mine.PostAsJsonAsync("/api/auth/password", new ChangePasswordRequest(password, "too-short"));
         Assert.Equal(HttpStatusCode.BadRequest, weak.StatusCode);
         Assert.Contains("newPassword", await weak.Content.ReadAsStringAsync());
 
@@ -93,18 +93,27 @@ public class AccountSecurityTests(ApiFixture fixture)
 
     [Theory]
     [InlineData("12345678")]            // the old minimum
-    [InlineData("123456789012")]        // a digit run
-    [InlineData("password1234")]        // on the common list
-    [InlineData("aaaaaaaaaaaa")]        // one character
-    [InlineData("Pat-Planner-Rocks")]   // contains the user's name
-    public async Task Weak_passwords_are_refused(string password)
+    [InlineData("Eleven-char")]         // one short of the minimum
+    [InlineData(null)]                  // 129 characters, built below
+    public async Task Passwords_outside_the_length_range_are_refused(string? password)
     {
+        password ??= new string('x', PasswordPolicy.MaxLength + 1);
         var admin = await fixture.AdminClientAsync();
 
         var response = await admin.PostAsJsonAsync("/api/users", new CreateUserRequest($"weak-{Guid.NewGuid():N}@test.local", "Pat Planner", password, UserRole.Planner));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("password", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Any_password_of_twelve_or_more_characters_is_accepted()
+    {
+        var admin = await fixture.AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync("/api/users", new CreateUserRequest($"plain-{Guid.NewGuid():N}@test.local", "Pat Planner", "twelve chars", UserRole.Planner));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
 
     [Fact]

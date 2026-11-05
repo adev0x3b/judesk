@@ -33,7 +33,7 @@ public static class SetupEndpoints
                 .Require("email", email)
                 .Must("email", email.Contains('@'), "Must be an email address.")
                 .Require("displayName", request.DisplayName, 120)
-                .Check("password", request.Password, email, request.DisplayName);
+                .Check("password", request.Password);
             if (v.Problem() is { } problem)
             {
                 return problem;
